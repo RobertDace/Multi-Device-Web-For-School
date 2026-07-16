@@ -1,0 +1,9 @@
+TkCahayaHati
+
+sb_publishable_O2bg5XFaF4SlKjlTjn9f2g_QlTBxAcj
+https://jkajqfxfcpaxjbkqedhg.supabase.co/rest/v1/
+
+https://jkajqfxfcpaxjbkqedhg.supabase.co/auth/v1/callback
+
+Client ID = 516684513735-jscsjab7uhkn8d92bgr2a6tb8cghglvg.apps.googleusercontent.com
+Client Secret = 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
