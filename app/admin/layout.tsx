@@ -33,8 +33,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     avatar_url: ''
   });
 
-  // State Modal Edit Profil
+  // State Modal Edit Profil & Logout State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [formData, setFormData] = useState({
     nama: '',
     email: '',
@@ -78,7 +79,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           setFormData({ nama: profile.nama, email: profile.email, password: '' });
         }
       }
-    } catch (err) {
+    } catch {
       console.log('Menggunakan profil default offline mode');
     }
   };
@@ -94,6 +95,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       password: ''
     });
     setIsProfileModalOpen(true);
+  };
+
+  // FUNGSIONALITAS LOGOUT KELUAR PORTAL ADMIN
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await supabase.auth.signOut();
+      showToast('Berhasil keluar dari Portal Admin.', 'success');
+      setTimeout(() => {
+        setIsProfileModalOpen(false);
+        router.push('/login');
+      }, 500);
+    } catch (err: any) {
+      setIsLoggingOut(false);
+      showToast(`Gagal keluar akun: ${err.message}`, 'error');
+    }
   };
 
   // Upload Avatar ke Supabase Storage Bucket 'aktivitas-images' (Pasti Ada & Aktif)
@@ -430,19 +447,35 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+              {/* ACTION BUTTONS SIMPAN, BATAL, & TOMBOL LOGOUT UTAMA */}
+              <div className="pt-3 border-t border-slate-100 space-y-2">
+                <div className="flex justify-end gap-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setIsProfileModalOpen(false)}
+                    className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                  >
+                    Simpan Perubahan
+                  </button>
+                </div>
+
+                {/* TOMBOL LOGOUT ADMIN */}
                 <button 
                   type="button" 
-                  onClick={() => setIsProfileModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors"
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="w-full mt-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-extrabold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  Batal
-                </button>
-                <button 
-                  type="submit"
-                  className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
-                >
-                  Simpan Perubahan
+                  <svg className="w-4 h-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
+                  </svg>
+                  <span>{isLoggingOut ? 'Mengeluarkan...' : 'Keluar dari Portal Admin (Logout)'}</span>
                 </button>
               </div>
             </form>

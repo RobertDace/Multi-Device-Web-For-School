@@ -8,7 +8,7 @@ interface PenggunaItem {
   nama: string;
   email: string;
   level_akses: string;
-  status?: string;
+  status_akun?: string;
   created_at?: string;
 }
 
@@ -62,7 +62,7 @@ export default function AdminUsersManagementPage() {
           nama: item.nama || item.full_name || 'Pengguna Tanpa Nama',
           email: item.email || '-',
           level_akses: item.level_akses || item.role || 'GURU & ADMIN',
-          status: item.status || 'Aktif',
+          status_akun: item.status_akun || 'Aktif',
           created_at: item.created_at
         }));
         setUserList(mappedData);
@@ -114,6 +114,7 @@ export default function AdminUsersManagementPage() {
     return Object.keys(newErrors).length === 0;
   };
 
+  // HANDLER SIMPAN USER (HANYA GUNAKAN status_akun)
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) {
@@ -123,32 +124,68 @@ export default function AdminUsersManagementPage() {
 
     try {
       if (editingUser) {
+        // Mode Update Hak Akses
         const { error } = await supabase
           .from('pengguna')
           .update({
             nama: formData.nama.trim(),
             email: formData.email.trim(),
-            level_akses: formData.level_akses
+            level_akses: formData.level_akses,
+            status_akun: 'Aktif'
           })
           .eq('id', editingUser.id);
 
         if (error) throw error;
         showToast('Hak akses otoritas akun berhasil diperbarui!', 'success');
       } else {
-        const { error } = await supabase
+        // Mode Registrasi Akun Baru
+        let validUserId = crypto.randomUUID();
+        let wasRateLimited = false;
+
+        // 1. Coba daftarkan akun via Supabase Auth
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: formData.email.trim(),
+          password: formData.password.trim(),
+          options: {
+            data: {
+              full_name: formData.nama.trim(),
+              role: formData.level_akses
+            }
+          }
+        });
+
+        if (authData?.user?.id) {
+          validUserId = authData.user.id;
+        }
+
+        if (authError) {
+          if (authError.message.toLowerCase().includes('rate limit') || authError.status === 429) {
+            wasRateLimited = true;
+          } else {
+            throw authError;
+          }
+        }
+
+        // 2. Simpan profil ke tabel 'pengguna' (HANYA status_akun)
+        const { error: dbError } = await supabase
           .from('pengguna')
           .insert([
             {
+              id: validUserId,
               nama: formData.nama.trim(),
               email: formData.email.trim(),
               level_akses: formData.level_akses,
-              password: formData.password.trim(),
-              status: 'Aktif'
+              status_akun: 'Aktif'
             }
           ]);
 
-        if (error) throw error;
-        showToast('Pendaftaran akun pengguna baru berhasil!', 'success');
+        if (dbError) throw dbError;
+
+        if (wasRateLimited) {
+          showToast('Akun berhasil dibuat di pangkalan data! (Email Auth rate-limited).', 'warning');
+        } else {
+          showToast('Pendaftaran akun pengguna baru berhasil!', 'success');
+        }
       }
 
       fetchUsersFromSupabase();
@@ -244,7 +281,7 @@ export default function AdminUsersManagementPage() {
 
                 <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">
                   <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                    Status: {u.status || 'Aktif'}
+                    Status: {u.status_akun || 'Aktif'}
                   </span>
                   
                   <div className="flex items-center gap-1">
@@ -406,7 +443,7 @@ export default function AdminUsersManagementPage() {
                 )}
               </div>
 
-              {/* CUSTOM DROPDOWN ENGINE: LEVEL OTORITAS / ROLE */}
+              {/* CUSTOM DROPDOWN ENGINE */}
               <div className="space-y-1 relative">
                 <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Level Otoritas Akun</label>
                 <div className="relative">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import { supabase } from '@/lib/supabase';
@@ -24,6 +24,7 @@ interface WaliProfile {
 
 export default function WaliLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   // State Profile Wali Murid
   const [currentUser, setCurrentProfile] = useState<WaliProfile>({
@@ -34,8 +35,9 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
     avatar_url: ''
   });
 
-  // State Modal Edit Profil
+  // State Modal Edit Profil & Logout
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [formData, setFormData] = useState({
     nama: '',
     email: '',
@@ -80,14 +82,22 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
           setFormData({ nama: profile.nama, email: profile.email, password: '' });
         }
       }
-    } catch (err) {
+    } catch {
       console.log('Menggunakan mode profil wali default');
     }
   };
 
-  useEffect(() => {
-    loadActiveProfile();
-  }, []);
+  // Di dalam komponen WaliLayout app/wali/layout.tsx:
+useEffect(() => {
+  const checkAuthGuard = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      // Jika pengguna belum terotentikasi, tendang ke /login
+      router.push('/login');
+    }
+  };
+  checkAuthGuard();
+}, [router]);
 
   const handleOpenProfileModal = () => {
     setFormData({
@@ -96,6 +106,22 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
       password: ''
     });
     setIsProfileModalOpen(true);
+  };
+
+  // FUNGSIONALITAS LOGOUT KELUAR PORTAL WALI
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await supabase.auth.signOut();
+      showToast('Berhasil keluar dari Portal Wali Murid.', 'success');
+      setTimeout(() => {
+        setIsProfileModalOpen(false);
+        router.push('/');
+      }, 600);
+    } catch (err: any) {
+      setIsLoggingOut(false);
+      showToast(`Gagal keluar akun: ${err.message}`, 'error');
+    }
   };
 
   // Upload Avatar Wali ke Bucket 'aktivitas-images'
@@ -191,8 +217,8 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           
           {/* SISI KIRI: LOGO RESMI SVG KEMENDIKBUD + RE-BRANDING TK CAHAYA HATI */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-200/80 shadow-2xs p-1 shrink-0">
+          <Link href="/" className="flex items-center gap-3 group">
+            <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-200/80 shadow-2xs p-1 shrink-0 group-hover:scale-105 transition-transform">
               <img 
                 src="https://upload.wikimedia.org/wikipedia/commons/9/9c/Logo_of_Ministry_of_Education_and_Culture_of_Republic_of_Indonesia.svg" 
                 alt="Logo Kemendikbud" 
@@ -201,42 +227,44 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
             </div>
 
             <div>
-              <h2 className="font-extrabold text-slate-900 text-sm md:text-base tracking-tight leading-none">
+              <h2 className="font-extrabold text-slate-900 text-sm md:text-base tracking-tight leading-none group-hover:text-[#02677f] transition-colors">
                 TK CAHAYA HATI
               </h2>
               <span className="text-[10px] font-mono font-extrabold text-[#02677f] uppercase tracking-wider block mt-0.5">
                 Portal Resmi Wali Murid
               </span>
             </div>
+          </Link>
+
+          {/* SISI KANAN: TOMBOL PROFIL INTERAKTIF & TOMBOL QUICK LOGOUT */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleOpenProfileModal}
+              className="flex items-center gap-2.5 p-1.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all group focus:outline-none focus:ring-2 focus:ring-[#02677f]/20"
+              title="Klik untuk ubah profil Wali Murid"
+            >
+              <div className="w-8 h-8 rounded-xl bg-[#02677f] text-white flex items-center justify-center font-bold text-xs shadow-2xs overflow-hidden border border-white/50 shrink-0 relative">
+                {currentUser.avatar_url ? (
+                  <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <span>{currentUser.nama.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+
+              <div className="hidden sm:block text-left pr-1">
+                <span className="block text-xs font-extrabold text-slate-900 leading-tight group-hover:text-[#02677f] transition-colors">
+                  {currentUser.nama}
+                </span>
+                <span className="block text-[9px] font-mono font-bold text-slate-400 uppercase">
+                  Wali Murid
+                </span>
+              </div>
+
+              <svg className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
           </div>
-
-          {/* SISI KANAN: TOMBOL INTERAKTIF PROFIL WALI */}
-          <button
-            onClick={handleOpenProfileModal}
-            className="flex items-center gap-2.5 p-1.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all group focus:outline-none focus:ring-2 focus:ring-[#02677f]/20"
-            title="Klik untuk ubah profil Wali Murid"
-          >
-            <div className="w-8 h-8 rounded-xl bg-[#02677f] text-white flex items-center justify-center font-bold text-xs shadow-2xs overflow-hidden border border-white/50 shrink-0 relative">
-              {currentUser.avatar_url ? (
-                <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                <span>{currentUser.nama.charAt(0).toUpperCase()}</span>
-              )}
-            </div>
-
-            <div className="hidden sm:block text-left pr-1">
-              <span className="block text-xs font-extrabold text-slate-900 leading-tight group-hover:text-[#02677f] transition-colors">
-                {currentUser.nama}
-              </span>
-              <span className="block text-[9px] font-mono font-bold text-slate-400 uppercase">
-                Wali Murid
-              </span>
-            </div>
-
-            <svg className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
-          </button>
 
         </div>
       </header>
@@ -246,7 +274,7 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
         {children}
       </main>
 
-      {/* MODAL EDIT PROFIL WALI MURID */}
+      {/* MODAL EDIT PROFIL & KELUAR AKUN (LOGOUT) */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-2xl space-y-5 animate-fadeIn">
@@ -325,30 +353,35 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Kata Sandi Baru (Opsional)</label>
-                <input 
-                  type="password" 
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 placeholder:text-slate-400 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
-                  placeholder="Kosongkan jika tidak ingin mengubah kata sandi"
-                />
-              </div>
+              {/* ACTION BUTTONS (SIMPAN, BATAL, & TOMBOL LOGOUT RESMI) */}
+              <div className="pt-3 border-t border-slate-100 space-y-2">
+                <div className="flex justify-end gap-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setIsProfileModalOpen(false)}
+                    className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit"
+                    className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                  >
+                    Simpan Profil
+                  </button>
+                </div>
 
-              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                {/* TOMBOL LOGOUT UTAMA */}
                 <button 
                   type="button" 
-                  onClick={() => setIsProfileModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors"
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
+                  className="w-full mt-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-extrabold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  Batal
-                </button>
-                <button 
-                  type="submit"
-                  className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
-                >
-                  Simpan Perubahan
+                  <svg className="w-4 h-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
+                  </svg>
+                  <span>{isLoggingOut ? 'Mengecek Sesi Keluar...' : 'Keluar dari Portal Wali (Logout)'}</span>
                 </button>
               </div>
             </form>
