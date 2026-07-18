@@ -148,7 +148,8 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/wali/dashboard`,
+          // 💡 DIALIHKAN KE FOLDER CALLBACK AGAR MELEWATI FILTER ROLE DI DATABASE
+          redirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 

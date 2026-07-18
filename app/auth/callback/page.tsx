@@ -31,7 +31,24 @@ export default function AuthCallbackPage() {
         'admin@ceesgank.com'
       ];
       
-      const isUserAdmin = user.user_metadata?.is_approved_admin || 
+      // 💡 AMBIL DATA LEVEL AKSES DARI TABEL PENGGUNA (SUPABASE)
+      let dbRole = '';
+      try {
+        const { data: penggunaData } = await supabase
+          .from('pengguna')
+          .select('level_akses, role')
+          .eq('email', userEmail)
+          .maybeSingle();
+        
+        dbRole = penggunaData?.level_akses || penggunaData?.role || '';
+      } catch (dbErr) {
+        console.error("Gagal mengambil data role dari database:", dbErr);
+      }
+      
+      // Jalankan pengecekan ganda: dari DB, metadata bawaan, atau email VIP
+      const isUserAdmin = dbRole === 'GURU & ADMIN' || 
+                          dbRole === 'ADMIN' ||
+                          user.user_metadata?.is_approved_admin || 
                           (userEmail && INTERNAL_ADMINS.includes(userEmail));
 
       if (isUserAdmin) {
