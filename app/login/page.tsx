@@ -23,6 +23,7 @@ export default function LoginPage() {
   const [toast, setToast] = useState<{ isOpen: boolean; message: string; type: 'success' | 'error' }>({
     isOpen: false, message: '', type: 'success'
   });
+  const [isVerifySent, setIsVerifySent] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ isOpen: true, message, type });
@@ -133,6 +134,7 @@ export default function LoginPage() {
 
       // 💡 Mengubah pesan pemberitahuan agar user tahu harus cek email
       showToast('Pendaftaran berhasil! Silakan periksa kotak masuk atau folder spam email Anda untuk aktivasi akun.', 'success');
+      setIsVerifySent(true);
       setIsRegister(false);
       setPassword('');
 
@@ -202,7 +204,51 @@ export default function LoginPage() {
       <div className="max-w-md w-full mx-auto my-auto py-6 space-y-6">
         
         <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-200/80 shadow-xl space-y-6 animate-fadeIn">
-          
+         {/* ================= TAMPILAN INSTRUKSI VERIFIKASI EMAIL ================= */}
+          {isVerifySent ? (
+            <div className="space-y-6 py-4 text-center animate-fadeIn">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 mx-auto animate-bounce">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
+                </svg>
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+                  Satu Langkah Lagi! Konfirmasi Email Anda
+                </h3>
+                <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                  Kami telah mengirimkan tautan aktivasi akun ke <span className="font-bold text-slate-800">{email}</span>. 
+                  Silakan periksa kotak masuk atau folder <span className="font-bold text-rose-500">Spam/Promosi</span> email Anda.
+                </p>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-100 rounded-2xl p-3 text-left">
+                <p className="text-[11px] text-amber-800 font-semibold leading-relaxed flex gap-2">
+                  <span className="shrink-0 font-bold">⚠️ Catatan:</span>
+                  Anda tidak akan bisa masuk ke portal sebelum menekan tombol konfirmasi yang ada di dalam email tersebut.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsVerifySent(false);
+                  setIsRegister(false); // Kembalikan ke form Login biasa
+                  setNama('');
+                  setEmail('');
+                }}
+                className="w-full bg-[#02677f] hover:bg-[#005468] text-white font-extrabold py-3 rounded-2xl text-xs transition-all active:scale-98"
+              >
+                Saya Sudah Verifikasi, Kembali ke Login
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* KOLOM FORM LOGIN / REGISTER ASLI MILIKMU DI SINI */}
+              {/* Taruh seluruh sisa kode form, tombol submit, divider, tombol google, dan toggle login/register di dalam blok ini */}
+            </>
+          )} 
           <div className="space-y-1.5 text-center">
             <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-[#02677f] mx-auto mb-2">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
