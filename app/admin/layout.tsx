@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus_Jakarta_Sans } from 'next/font/google';
@@ -24,6 +24,7 @@ interface UserProfile {
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // State Profile Status
   const [currentUser, setCurrentProfile] = useState<UserProfile>({
@@ -33,7 +34,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     avatar_url: ''
   });
 
-  // State Modal Edit Profil & Logout State
+  // State Dropdown Profil Menu & Modal Edit Profil
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [formData, setFormData] = useState({
@@ -56,7 +58,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setTimeout(() => setToast({ isOpen: false, message: '', type: 'success' }), 3500);
   };
 
-  // Fetch Session Profile Aktif dari Supabase
+  // Close dropdown menu secara otomatis saat mendeteksi klik di luar komponen
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Fetch Session Profile Active dari Supabase
   const loadActiveProfile = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -296,34 +309,83 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             })}
           </nav>
 
-          {/* SISI KANAN: TOMBOL INTERAKTIF EDIT PROFIL AKUN (FOTO CUSTOM & NAMA) */}
-          <button
-            onClick={handleOpenProfileModal}
-            className="flex items-center gap-2.5 p-1.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all group focus:outline-none focus:ring-2 focus:ring-[#02677f]/20"
-            title="Klik untuk ubah profil & foto akun"
-          >
-            {/* AVATAR RENDER: TAMPILKAN FOTO CUSTOM JIKA ADA, ATAU INITIAL NAMA */}
-            <div className="w-8 h-8 rounded-xl bg-[#02677f] text-white flex items-center justify-center font-bold text-xs shadow-2xs overflow-hidden border border-white/50 shrink-0 relative">
-              {currentUser.avatar_url ? (
-                <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                <span>{currentUser.nama.charAt(0).toUpperCase()}</span>
-              )}
-            </div>
+          {/* SISI KANAN: TOMBOL INTERAKTIF DROPDOWN PROFIL (EDIT PROFIL, SWITCH ROLE & LOGOUT) */}
+          <div className="relative" ref={dropdownRef}>
+            <button
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="flex items-center gap-2.5 p-1.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all group focus:outline-none focus:ring-2 focus:ring-[#02677f]/20"
+              title="Klik untuk membuka menu akun"
+            >
+              {/* AVATAR RENDER: TAMPILKAN FOTO CUSTOM JIKA ADA, ATAU INITIAL NAMA */}
+              <div className="w-8 h-8 rounded-xl bg-[#02677f] text-white flex items-center justify-center font-bold text-xs shadow-2xs overflow-hidden border border-white/50 shrink-0 relative">
+                {currentUser.avatar_url ? (
+                  <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <span>{currentUser.nama.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
 
-            <div className="hidden sm:block text-left pr-1">
-              <span className="block text-xs font-extrabold text-slate-900 leading-tight group-hover:text-[#02677f] transition-colors">
-                {currentUser.nama}
-              </span>
-              <span className="block text-[9px] font-mono font-bold text-slate-400 uppercase">
-                {currentUser.role}
-              </span>
-            </div>
+              <div className="hidden sm:block text-left pr-1">
+                <span className="block text-xs font-extrabold text-slate-900 leading-tight group-hover:text-[#02677f] transition-colors">
+                  {currentUser.nama}
+                </span>
+                <span className="block text-[9px] font-mono font-bold text-slate-400 uppercase">
+                  {currentUser.role}
+                </span>
+              </div>
 
-            <svg className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
-          </button>
+              <svg className={`w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
+
+            {/* ELEMENT POPUP DROPDOWN UTAMA */}
+            {isDropdownOpen && (
+              <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden py-1.5 animate-fadeIn">
+                
+                {/* 🔁 OPSI 1: JALUR PINTAS PADA SWITCH ROLE (HIGHLIGTED SKY BLUE) */}
+                <Link 
+                  href="/wali-murid/dashboard" 
+                  onClick={() => setIsDropdownOpen(false)} 
+                  className="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-700 hover:bg-sky-50 flex items-center gap-2 border-b border-slate-100 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5A5.25 5.25 0 0021 11.25V3" />
+                  </svg>
+                  <span>Pindah ke Portal Wali</span>
+                </Link>
+
+                {/* ⚙️ OPSI 2: MODAL EDIT PROFIL TRIGGER */}
+                <button
+                  onClick={() => {
+                    setIsDropdownOpen(false);
+                    handleOpenProfileModal();
+                  }}
+                  className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 flex items-center gap-2 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                  </svg>
+                  <span>Edit Profil Saya</span>
+                </button>
+
+                {/* 🚪 OPSI 3: LOGOUT RESMI PORTAL PORT PORTAL ADMIN */}
+                <button
+                  onClick={() => {
+                    setIsDropdownOpen(false);
+                    handleLogout();
+                  }}
+                  disabled={isLoggingOut}
+                  className="w-full text-left px-4 py-2.5 text-xs font-extrabold text-rose-600 hover:bg-rose-50 flex items-center gap-2 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
+                  </svg>
+                  <span>{isLoggingOut ? 'Mengeluarkan...' : 'Keluar Akun (Logout)'}</span>
+                </button>
+              </div>
+            )}
+          </div>
 
         </div>
       </header>
@@ -356,7 +418,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </div>
 
-      {/* ================= MODAL EDIT PROFIL AKUN SAYA ================= */}
+      {/* ================= MODAL EDIT PROFIL AKUN SAYA (MURNI BERSIH DARI LOGOUT) ================= */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-2xl space-y-5 animate-fadeIn">
@@ -447,35 +509,20 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 />
               </div>
 
-              {/* ACTION BUTTONS SIMPAN, BATAL, & TOMBOL LOGOUT UTAMA */}
-              <div className="pt-3 border-t border-slate-100 space-y-2">
-                <div className="flex justify-end gap-2">
-                  <button 
-                    type="button" 
-                    onClick={() => setIsProfileModalOpen(false)}
-                    className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors"
-                  >
-                    Batal
-                  </button>
-                  <button 
-                    type="submit"
-                    className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
-                  >
-                    Simpan Perubahan
-                  </button>
-                </div>
-
-                {/* TOMBOL LOGOUT ADMIN */}
+              {/* ACTION BUTTONS SIMPAN & BATAL */}
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
                 <button 
                   type="button" 
-                  onClick={handleLogout}
-                  disabled={isLoggingOut}
-                  className="w-full mt-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-extrabold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
+                  onClick={() => setIsProfileModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors"
                 >
-                  <svg className="w-4 h-4 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
-                  </svg>
-                  <span>{isLoggingOut ? 'Mengeluarkan...' : 'Keluar dari Portal Admin (Logout)'}</span>
+                  Batal
+                </button>
+                <button 
+                  type="submit"
+                  className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                >
+                  Simpan Perubahan
                 </button>
               </div>
             </form>
