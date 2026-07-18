@@ -345,7 +345,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 
                 {/* 🔁 OPSI 1: JALUR PINTAS PADA SWITCH ROLE (HIGHLIGTED SKY BLUE) */}
                 <Link 
-                  href="/wali-murid/dashboard" 
+                  href="/wali/dashboard" 
                   onClick={() => setIsDropdownOpen(false)} 
                   className="w-full text-left px-4 py-2.5 text-xs font-bold text-sky-700 hover:bg-sky-50 flex items-center gap-2 border-b border-slate-100 transition-colors"
                 >
