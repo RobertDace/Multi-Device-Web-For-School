@@ -84,7 +84,7 @@ export default function LoginPage() {
     }
   };
 
-  // 2. HANDLER MENDAFTAR AKUN BARU (SIGN UP)
+// 2. HANDLER MENDAFTAR AKUN BARU (SIGN UP DENGAN VERIFIKASI EMAIL)
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -102,7 +102,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Create account in Supabase Auth
+      // Create account in Supabase Auth dengan menyertakan emailRedirectTo
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email.trim(),
         password: password.trim(),
@@ -110,13 +110,15 @@ export default function LoginPage() {
           data: {
             full_name: nama.trim(),
             role: 'WALI MURID',
-          }
+          },
+          // 💡 Mengarahkan link konfirmasi email ke halaman callback utama kita
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
         }
       });
 
       if (authError) throw authError;
 
-      // Insert profile data to 'pengguna' table
+      // Insert profile data to 'pengguna' table (data tersimpan tapi status auth masih unconfirmed)
       if (authData.user) {
         await supabase.from('pengguna').insert([
           {
@@ -129,7 +131,8 @@ export default function LoginPage() {
         ]);
       }
 
-      showToast('Pendaftaran berhasil! Silakan masuk dengan akun baru Anda.', 'success');
+      // 💡 Mengubah pesan pemberitahuan agar user tahu harus cek email
+      showToast('Pendaftaran berhasil! Silakan periksa kotak masuk atau folder spam email Anda untuk aktivasi akun.', 'success');
       setIsRegister(false);
       setPassword('');
 
