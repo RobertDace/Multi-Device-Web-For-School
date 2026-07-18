@@ -17,12 +17,12 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      // 💡 SUNTIK COOKIES MANUAL VIA CLIENT AGAR TERDTEKSI AMAN OLEH proxy.ts
+      // 💡 SUNTIK COOKIES MANUAL VIA CLIENT AGAR TERDETEKSI AMAN OLEH proxy.ts
       document.cookie = `sb-access-token=${session.access_token}; path=/; max-age=${session.expires_in}; SameSite=Lax`;
       document.cookie = `sb-refresh-token=${session.refresh_token}; path=/; max-age=604800; SameSite=Lax`;
 
       const user = session.user;
-      const userEmail = user.email?.toLowerCase();
+      const userEmail = user.email?.toLowerCase() || '';
       
       // Daftar email VIP yang otomatis lolos sebagai Admin Utama
       const INTERNAL_ADMINS = [
@@ -31,25 +31,52 @@ export default function AuthCallbackPage() {
         'admin@ceesgank.com'
       ];
       
-      // 💡 AMBIL DATA LEVEL AKSES DARI TABEL PENGGUNA (SUPABASE)
       let dbRole = '';
+      let isUserRegistered = false;
+
       try {
+        // Cek apakah email Google ini sudah didaftarkan perorangan oleh admin di database
         const { data: penggunaData } = await supabase
           .from('pengguna')
-          .select('level_akses, role')
-          .eq('email', userEmail)
+          .select('id, level_akses, role')
+          .ilike('email', userEmail)
           .maybeSingle();
         
-        dbRole = penggunaData?.level_akses || penggunaData?.role || '';
+        if (penggunaData) {
+          isUserRegistered = true;
+          dbRole = penggunaData.level_akses || penggunaData.role || '';
+          
+          // Sinkronkan UUID Auth ke tabel pengguna jika admin mendaftarkannya manual lewat entry data
+          if (penggunaData.id !== user.id) {
+            await supabase
+              .from('pengguna')
+              .update({ id: user.id })
+              .ilike('email', userEmail);
+          }
+        }
       } catch (dbErr) {
-        console.error("Gagal mengambil data role dari database:", dbErr);
+        console.error("Gagal melakukan verifikasi database sekolah:", dbErr);
       }
       
-      // Jalankan pengecekan ganda: dari DB, metadata bawaan, atau email VIP
+      // Tentukan apakah user punya hak akses admin internal
+      const isVipAdmin = INTERNAL_ADMINS.includes(userEmail) || user.user_metadata?.is_approved_admin;
+
+      // 🛑 PROTEKSI UTAMA: Jika email tidak terdaftar di DB DAN bukan Admin VIP, langsung BLOKIR
+      if (!isUserRegistered && !isVipAdmin) {
+        setStatus('Email Anda belum terdaftar sebagai Wali Murid resmi. Mengalihkan...');
+        
+        // Sign out dari auth session agar tidak menyangkut
+        await supabase.auth.signOut();
+        
+        setTimeout(() => {
+          window.location.href = '/login?error=not-registered';
+        }, 2000);
+        return;
+      }
+      
       const isUserAdmin = dbRole === 'GURU & ADMIN' || 
-                          dbRole === 'ADMIN' ||
-                          user.user_metadata?.is_approved_admin || 
-                          (userEmail && INTERNAL_ADMINS.includes(userEmail));
+                          dbRole === 'ADMIN' || 
+                          isVipAdmin;
 
       if (isUserAdmin) {
         setStatus('Akses Otoritas Admin Terverifikasi! Mengalihkan...');
