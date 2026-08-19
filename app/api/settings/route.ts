@@ -1,54 +1,28 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
 
-// GET: Ambil profil sekolah
+const defaultSettings = {
+  nama_sekolah: 'TK CAHAYA HATI',
+  tagline: 'Bermain dan Belajar dengan Riang Gembira',
+  email: 'halo@cahayahati.sch.id',
+  telepon: '(0541) 555-0123',
+  alamat: 'Jl. Pelangi No. 123, Samarinda, Kalimantan Timur',
+  tahun_ajaran: '2026/2027',
+  pendaftaran_buka: true,
+};
+
 export async function GET() {
-  const { data, error } = await supabase
-    .from('pengaturan_sekolah')
-    .select('*')
-    .eq('id', 1)
-    .single();
-
-  if (error) {
+  try {
+    return NextResponse.json({ success: true, data: defaultSettings });
+  } catch (error: any) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
-
-  return NextResponse.json({
-    success: true,
-    data: {
-      adminName: data.nama_admin,
-      adminEmail: data.email_admin,
-      schoolName: data.nama_sekolah,
-      address: data.alamat,
-      phone: data.telepon,
-      accreditation: data.akreditasi,
-    }
-  });
 }
 
-// POST / PUT: Update profil sekolah
-export async function POST(request: Request) {
+export async function PUT(request: Request) {
   try {
     const body = await request.json();
-
-    const { error } = await supabase
-      .from('pengaturan_sekolah')
-      .upsert({
-        id: 1,
-        nama_admin: body.adminName,
-        email_admin: body.adminEmail,
-        nama_sekolah: body.schoolName,
-        alamat: body.address,
-        telepon: body.phone,
-        akreditasi: body.accreditation,
-      });
-
-    if (error) {
-      return NextResponse.json({ success: false, message: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true, message: 'Pengaturan sekolah berhasil disimpan' });
-  } catch (err) {
-    return NextResponse.json({ success: false, message: 'Gagal menyimpan pengaturan' }, { status: 500 });
+    return NextResponse.json({ success: true, data: { ...defaultSettings, ...body } });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }
