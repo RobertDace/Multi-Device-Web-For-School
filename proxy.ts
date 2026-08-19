@@ -1,24 +1,26 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export default function proxy(request: NextRequest) {
-  const authCookie = request.cookies.get('sb-access-token');
-  const path = request.nextUrl.pathname;
+// Rute publik yang boleh diakses tanpa login Clerk
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/aktivitas(.*)",
+  "/kalender(.*)",
+  "/sign-in(.*)",
+  "/sign-up(.*)",
+  "/api/aktivitas(.*)",
+  "/api/rapor/check(.*)",
+  "/api/webhook(.*)",
+]);
 
-  // 💡 Daftar email yang diberi hak akses sebagai ADMIN super
-  const ADMIN_WHITELIST = ['robit.noreen@gmail.com', 'admin.ceria@gmail.com']; 
-  // (Silakan ganti dengan email Google asli yang kamu pakai buat testing login kemarin)
-
-  // Ambil data user/email dari jwt cookie jika memungkinkan, 
-  // atau biarkan client-side check melengkapinya.
-  if (path.startsWith('/admin')) {
-    // Proteksi dasar rute admin
-    // Jika dideploy, kita bisa membaca payload email dari cookie secara instan
+export default clerkMiddleware(async (auth, req) => {
+  if (!isPublicRoute(req)) {
+    await auth.protect();
   }
-
-  return NextResponse.next();
-}
+});
 
 export const config = {
-  matcher: ['/admin/:path*', '/wali/:path*'],
+  matcher: [
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    "/(api|trpc)(.*)",
+  ],
 };

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 
 interface AktivitasItem {
   id: string; 
@@ -19,11 +18,11 @@ export default function AdminKalenderPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAgenda, setEditingAgenda] = useState<AktivitasItem | null>(null);
 
-  // State Controls Custom Category Dropdown (Anti Native OS Select UI)
+  // State Controls Custom Category Dropdown
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const categoryOptions = ['Akademik', 'Kegiatan', 'Fasilitas'];
 
-  // State Upload Gambar ke Supabase Storage
+  // State Upload Gambar
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadingFileName, setUploadingFileName] = useState('');
@@ -65,16 +64,15 @@ export default function AdminKalenderPage() {
     }
   };
 
-  const fetchAgendaDariSupabase = async () => {
+  const fetchAgendaDariDatabase = async () => {
     setLoadingData(true);
     try {
-      const { data, error } = await supabase
-        .from('aktivitas')
-        .select('*')
-        .order('tanggal', { ascending: true });
-
-      if (error) throw error;
-      if (data) setAgendaList(data);
+      const res = await fetch('/api/aktivitas');
+      const json = await res.json();
+      const data: AktivitasItem[] = json.success ? json.data : (Array.isArray(json) ? json : []);
+      
+      const sorted = [...data].sort((a, b) => new Date(a.tanggal).getTime() - new Date(b.tanggal).getTime());
+      setAgendaList(sorted);
     } catch (err: any) {
       console.error('Gagal memuat data kalender:', err.message);
       showToast('Koneksi database terganggu saat memuat agenda.', 'error');
@@ -84,10 +82,10 @@ export default function AdminKalenderPage() {
   };
 
   useEffect(() => {
-    fetchAgendaDariSupabase();
+    fetchAgendaDariDatabase();
   }, []);
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -103,49 +101,37 @@ export default function AdminKalenderPage() {
 
     setUploadingFileName(file.name);
     setIsUploadingFile(true);
-    setUploadProgress(5);
+    setUploadProgress(20);
 
-    const progressInterval = setInterval(() => {
-      setUploadProgress((prev: number) => {
-        if (prev >= 92) {
-          clearInterval(progressInterval);
-          return 92;
-        }
-        return prev + Math.floor(Math.random() * 12) + 4;
-      });
-    }, 120);
+    const reader = new FileReader();
 
-    try {
-      const fileExtension = file.name.split('.').pop();
-      const cleanFileName = `${Date.now()}_agenda_${Math.floor(100 + Math.random() * 900)}.${fileExtension}`;
-      const filePath = `public/${cleanFileName}`;
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percent);
+      }
+    };
 
-      const { error: uploadError } = await supabase.storage
-        .from('aktivitas-images')
-        .upload(filePath, file, { cacheControl: '3600', upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      clearInterval(progressInterval);
+    reader.onloadend = () => {
       setUploadProgress(100);
-
-      const { data } = supabase.storage.from('aktivitas-images').getPublicUrl(filePath);
-
+      const base64Url = reader.result as string;
       setTimeout(() => {
-        setFormData((prev: Omit<AktivitasItem, 'id'>) => ({ ...prev, gambar_url: data.publicUrl }));
+        setFormData((prev) => ({ ...prev, gambar_url: base64Url }));
         setIsUploadingFile(false);
-        showToast('Gambar brosur berhasil diunggah ke storage cloud!', 'success');
-      }, 350);
+        showToast('Gambar brosur berhasil diproses!', 'success');
+      }, 300);
+    };
 
-    } catch (err: any) {
-      clearInterval(progressInterval);
+    reader.onerror = () => {
       setIsUploadingFile(false);
-      showToast(`Gagal mengunggah gambar: ${err.message}`, 'error');
-    }
+      showToast('Gagal memproses berkas gambar.', 'error');
+    };
+
+    reader.readAsDataURL(file);
   };
 
   const handleRemoveImage = () => {
-    setFormData((prev: Omit<AktivitasItem, 'id'>) => ({ ...prev, gambar_url: '' }));
+    setFormData((prev) => ({ ...prev, gambar_url: '' }));
     showToast('Cover brosur agenda berhasil dicabut.', 'warning');
   };
 
@@ -161,7 +147,13 @@ export default function AdminKalenderPage() {
     setEditingAgenda(item);
     setErrors({});
     setIsCategoryDropdownOpen(false);
-    setFormData({ ...item });
+    setFormData({
+      judul: item.judul,
+      kategori: item.kategori || 'Akademik',
+      tanggal: item.tanggal ? item.tanggal.split('T')[0] : '',
+      gambar_url: item.gambar_url || '',
+      deskripsi: item.deskripsi || ''
+    });
     setIsModalOpen(true);
   };
 
@@ -183,29 +175,34 @@ export default function AdminKalenderPage() {
 
     try {
       if (editingAgenda) {
-        const { error } = await supabase
-          .from('aktivitas')
-          .update({
+        const res = await fetch(`/api/aktivitas/${editingAgenda.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             judul: formData.judul.trim(),
             kategori: formData.kategori,
             tanggal: formData.tanggal,
             gambar_url: formData.gambar_url?.trim(),
             deskripsi: formData.deskripsi.trim()
           })
-          .eq('id', editingAgenda.id);
+        });
 
-        if (error) throw error;
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message || 'Gagal memperbarui');
         showToast('Rencana agenda berhasil diperbarui!', 'success');
       } else {
-        const { error } = await supabase
-          .from('aktivitas')
-          .insert([formData]);
+        const res = await fetch('/api/aktivitas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        });
 
-        if (error) throw error;
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message || 'Gagal menambahkan');
         showToast('Agenda kegiatan baru berhasil dijadwalkan!', 'success');
       }
 
-      fetchAgendaDariSupabase();
+      fetchAgendaDariDatabase();
       setIsModalOpen(false);
     } catch (err: any) {
       showToast(`Gagal menyimpan ke server: ${err.message}`, 'error');
@@ -218,18 +215,19 @@ export default function AdminKalenderPage() {
       message: `Apakah Anda yakin ingin menghapus jadwal kegiatan "${item.judul}" secara permanen?`,
       onConfirm: async () => {
         try {
-          const { error } = await supabase
-            .from('aktivitas')
-            .delete()
-            .eq('id', item.id);
+          const res = await fetch(`/api/aktivitas/${item.id}`, {
+            method: 'DELETE'
+          });
 
-          if (error) throw error;
-          fetchAgendaDariSupabase();
+          const result = await res.json();
+          if (!res.ok || !result.success) throw new Error(result.message || 'Gagal menghapus');
+
+          fetchAgendaDariDatabase();
           showToast('Jadwal agenda berhasil dihapus secara permanen.', 'success');
         } catch (err: any) {
           showToast(`Gagal menghapus data: ${err.message}`, 'error');
         } finally {
-          setConfirmDialog((prev: any) => ({ ...prev, isOpen: false }));
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       }
     });
@@ -252,7 +250,6 @@ export default function AdminKalenderPage() {
           <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Kalender & Kegiatan</h1>
           <p className="text-xs text-slate-400 font-medium mt-0.5">Atur jadwal libur nasional, rapat wali murid, dan kegiatan KBM di TK CAHAYA HATI.</p>
         </div>
-        {/* Tombol Tambah Desktop */}
         <button 
           onClick={handleOpenAdd} 
           className="hidden md:flex bg-[#02677f] hover:bg-[#005468] text-white px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition-all items-center gap-1.5"
@@ -264,7 +261,7 @@ export default function AdminKalenderPage() {
         </button>
       </header>
 
-      {/* SLEEK PRECISE SEARCH BAR */}
+      {/* SEARCH BAR */}
       <div className="relative max-w-md w-full mt-4">
         <input 
           type="text" 
@@ -280,7 +277,7 @@ export default function AdminKalenderPage() {
 
       {/* RENDER GRID CARDS BENTO */}
       {loadingData ? (
-        <div className="p-12 text-center text-xs font-bold text-slate-400 animate-pulse">Menghubungkan ke kalender akademik cloud...</div>
+        <div className="p-12 text-center text-xs font-bold text-slate-400 animate-pulse">Menghubungkan ke kalender akademik database...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mt-5">
           {filteredAgenda.map((item) => {
@@ -306,7 +303,6 @@ export default function AdminKalenderPage() {
                     </span>
                   </div>
                   
-                  {/* COVER DOKUMENTASI / BROSUR */}
                   {item.gambar_url && (
                     <div className="w-full h-36 rounded-xl overflow-hidden border border-slate-100 bg-slate-50 relative">
                       <img src={item.gambar_url} alt="Cover" className="w-full h-full object-cover" />
@@ -323,7 +319,6 @@ export default function AdminKalenderPage() {
                   </div>
                 </div>
 
-                {/* ACTION BUTTON CONTROL PANEL */}
                 <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end gap-2 items-center">
                   <button 
                     onClick={() => handleOpenEdit(item)} 
@@ -356,7 +351,7 @@ export default function AdminKalenderPage() {
         </div>
       )}
 
-      {/* FLOATING THUMB-ACTION BUTTON FOR MOBILE */}
+      {/* FLOATING ACTION BUTTON FOR MOBILE */}
       <div className="fixed bottom-[92px] right-4 left-4 md:hidden z-40">
         <button 
           onClick={handleOpenAdd} 
@@ -388,7 +383,7 @@ export default function AdminKalenderPage() {
             </div>
 
             <form onSubmit={handleSaveAgenda} noValidate className="space-y-4">
-              {/* FIELD 1: JUDUL */}
+              {/* JUDUL */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">Nama / Judul Kegiatan</label>
                 <input 
@@ -411,7 +406,7 @@ export default function AdminKalenderPage() {
                 )}
               </div>
 
-              {/* BARIS: TANGGAL & CUSTOM CATEGORY DROPDOWN */}
+              {/* TANGGAL & DROPDOWN KATEGORI */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Tanggal Agenda</label>
@@ -434,7 +429,6 @@ export default function AdminKalenderPage() {
                   )}
                 </div>
 
-                {/* CUSTOM CATEGORY DROPDOWN */}
                 <div className="space-y-1 relative">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Klasifikasi Kategori</label>
                   <div className="relative">
@@ -474,7 +468,7 @@ export default function AdminKalenderPage() {
                 </div>
               </div>
 
-              {/* HUB DROPZONE LIVE IMAGE UPLOADER */}
+              {/* IMAGE UPLOADER */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">Gambar Brosur / Cover Dokumentasi</label>
                 
@@ -494,7 +488,7 @@ export default function AdminKalenderPage() {
                       <img src={formData.gambar_url} alt="Brosur Preview" className="w-12 h-12 rounded-lg object-cover bg-slate-100 border border-slate-100 shrink-0" />
                       <div className="truncate">
                         <span className="block text-xs font-bold text-slate-800 truncate">brosur_kegiatan.png</span>
-                        <span className="block text-[9px] font-bold text-emerald-600 mt-0.5">Selesai terunggah ke cloud</span>
+                        <span className="block text-[9px] font-bold text-emerald-600 mt-0.5">Selesai terunggah</span>
                       </div>
                     </div>
                     <button type="button" onClick={handleRemoveImage} className="text-[10px] font-bold text-rose-600 hover:text-rose-700 px-2.5 py-1">Ganti</button>
@@ -512,7 +506,7 @@ export default function AdminKalenderPage() {
                 )}
               </div>
 
-              {/* FIELD DESKRIPSI UTAMA */}
+              {/* DESKRIPSI */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">Deskripsi / Rangkuman Acara</label>
                 <textarea 

@@ -4,47 +4,34 @@ import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus_Jakarta_Sans } from 'next/font/google';
-import { supabase } from '@/lib/supabase';
+import { useUser, useClerk } from '@clerk/nextjs';
 
-// Inisialisasi Font Plus Jakarta Sans secara Global
 const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700', '800'],
   variable: '--font-jakarta',
 });
 
-interface UserProfile {
-  id?: string;
-  nama: string;
-  email: string;
-  role: string;
-  avatar_url?: string;
-}
-
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // State Profile Status
-  const [currentUser, setCurrentProfile] = useState<UserProfile>({
-    nama: 'Admin TK',
-    email: 'admin@cahayahati.sch.id',
-    role: 'GURU & ADMIN',
-    avatar_url: ''
-  });
+  // Clerk Auth Hooks
+  const { user, isLoaded } = useUser();
+  const { signOut, openUserProfile } = useClerk();
 
-  // State Dropdown Profil Menu & Modal Edit Profil
+  // State Dropdown & Modal
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const [formData, setFormData] = useState({
     nama: '',
     email: '',
-    password: ''
   });
 
-  // State Upload Avatar Engine
+  // State Upload Avatar
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -58,7 +45,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setTimeout(() => setToast({ isOpen: false, message: '', type: 'success' }), 3500);
   };
 
-  // Close dropdown menu secara otomatis saat mendeteksi klik di luar komponen
+  // Tutup dropdown saat klik di luar
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -69,56 +56,35 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Fetch Session Profile Active dari Supabase
-  const loadActiveProfile = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data } = await supabase
-          .from('pengguna')
-          .select('*')
-          .eq('email', user.email)
-          .single();
-
-        if (data) {
-          const profile = {
-            id: data.id,
-            nama: data.nama || 'Alfian Robit',
-            email: data.email || user.email || '',
-            role: data.level_akses || 'GURU & ADMIN',
-            avatar_url: data.avatar_url || ''
-          };
-          setCurrentProfile(profile);
-          setFormData({ nama: profile.nama, email: profile.email, password: '' });
-        }
-      }
-    } catch {
-      console.log('Menggunakan profil default offline mode');
-    }
-  };
-
+  // Sinkronisasi data user dari Clerk ke Form Modal
   useEffect(() => {
-    loadActiveProfile();
-  }, []);
+    if (user) {
+      setFormData({
+        nama: user.fullName || user.firstName || 'Admin TK',
+        email: user.primaryEmailAddress?.emailAddress || '',
+      });
+    }
+  }, [user]);
 
   const handleOpenProfileModal = () => {
-    setFormData({
-      nama: currentUser.nama,
-      email: currentUser.email,
-      password: ''
-    });
+    if (user) {
+      setFormData({
+        nama: user.fullName || user.firstName || 'Admin TK',
+        email: user.primaryEmailAddress?.emailAddress || '',
+      });
+    }
     setIsProfileModalOpen(true);
   };
 
-  // FUNGSIONALITAS LOGOUT KELUAR PORTAL ADMIN
+  // LOGOUT MENGGUNAKAN CLERK
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
-      await supabase.auth.signOut();
+      await signOut();
       showToast('Berhasil keluar dari Portal Admin.', 'success');
       setTimeout(() => {
         setIsProfileModalOpen(false);
-        router.push('/login');
+        router.push('/sign-in');
       }, 500);
     } catch (err: any) {
       setIsLoggingOut(false);
@@ -126,10 +92,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   };
 
-  // Upload Avatar ke Supabase Storage Bucket 'aktivitas-images' (Pasti Ada & Aktif)
+  // UPLOAD AVATAR LANGSUNG KE CLERK
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
 
     if (!file.type.startsWith('image/')) {
       showToast('Harap pilih berkas gambar (JPG, PNG, WEBP).', 'warning');
@@ -137,74 +103,36 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
 
     setIsUploadingAvatar(true);
-    setUploadProgress(15);
-
-    const progressInterval = setInterval(() => {
-      setUploadProgress(prev => (prev >= 90 ? 90 : prev + 15));
-    }, 120);
+    setUploadProgress(30);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `avatar_${currentUser.id || Date.now()}_${Math.floor(Math.random() * 1000)}.${fileExt}`;
-      const filePath = `public/${fileName}`;
-
-      // Menggunakan bucket 'aktivitas-images' yang terbukti aktif
-      const { error: uploadError } = await supabase.storage
-        .from('aktivitas-images')
-        .upload(filePath, file, { cacheControl: '3600', upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      clearInterval(progressInterval);
+      await user.setProfileImage({ file });
       setUploadProgress(100);
-
-      const { data } = supabase.storage.from('aktivitas-images').getPublicUrl(filePath);
-      const publicUrl = data.publicUrl;
-
-      // Update URL foto profil ke database pengguna jika ID tersedia
-      if (currentUser.id) {
-        await supabase
-          .from('pengguna')
-          .update({ avatar_url: publicUrl })
-          .eq('id', currentUser.id);
-      }
-
-      setCurrentProfile(prev => ({ ...prev, avatar_url: publicUrl }));
-      setIsUploadingAvatar(false);
-      showToast('Foto profil baru berhasil diunggah!', 'success');
+      showToast('Foto profil baru berhasil diperbarui!', 'success');
     } catch (err: any) {
-      clearInterval(progressInterval);
-      setIsUploadingAvatar(false);
       showToast(`Gagal mengunggah foto profil: ${err.message}`, 'error');
+    } finally {
+      setIsUploadingAvatar(false);
     }
   };
 
-  // Save Profile Text Changes
+  // SIMPAN PERUBAHAN NAMA KE CLERK
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.nama.trim()) {
+    if (!formData.nama.trim() || !user) {
       showToast('Nama lengkap tidak boleh kosong.', 'warning');
       return;
     }
 
     try {
-      if (currentUser.id) {
-        const { error } = await supabase
-          .from('pengguna')
-          .update({
-            nama: formData.nama.trim(),
-            email: formData.email.trim()
-          })
-          .eq('id', currentUser.id);
+      const nameParts = formData.nama.trim().split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ');
 
-        if (error) throw error;
-      }
-
-      setCurrentProfile(prev => ({
-        ...prev,
-        nama: formData.nama.trim(),
-        email: formData.email.trim()
-      }));
+      await user.update({
+        firstName,
+        lastName: lastName || undefined,
+      });
 
       showToast('Profil akun Anda berhasil disimpan!', 'success');
       setIsProfileModalOpen(false);
@@ -261,6 +189,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   ];
 
+  const displayName = isLoaded ? (user?.fullName || user?.firstName || 'Admin TK') : 'Memuat...';
+  const displayAvatar = user?.imageUrl || '';
+
   return (
     <div className={`${jakarta.variable} font-sans min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-[#02677f] selection:text-white`}>
       
@@ -268,7 +199,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-4 lg:px-8 py-3 transition-all">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           
-          {/* SISI KIRI: LOGO RESMI KEMENDIKBUD + RE-BRANDING TK CAHAYA HATI */}
+          {/* SISI KIRI: LOGO */}
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center border border-slate-200/80 shadow-2xs p-1 shrink-0">
               <img 
@@ -309,28 +240,27 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             })}
           </nav>
 
-          {/* SISI KANAN: TOMBOL INTERAKTIF DROPDOWN PROFIL (EDIT PROFIL, SWITCH ROLE & LOGOUT) */}
+          {/* SISI KANAN: DROPDOWN PROFIL */}
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
               className="flex items-center gap-2.5 p-1.5 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all group focus:outline-none focus:ring-2 focus:ring-[#02677f]/20"
               title="Klik untuk membuka menu akun"
             >
-              {/* AVATAR RENDER: TAMPILKAN FOTO CUSTOM JIKA ADA, ATAU INITIAL NAMA */}
               <div className="w-8 h-8 rounded-xl bg-[#02677f] text-white flex items-center justify-center font-bold text-xs shadow-2xs overflow-hidden border border-white/50 shrink-0 relative">
-                {currentUser.avatar_url ? (
-                  <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                {displayAvatar ? (
+                  <img src={displayAvatar} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
-                  <span>{currentUser.nama.charAt(0).toUpperCase()}</span>
+                  <span>{displayName.charAt(0).toUpperCase()}</span>
                 )}
               </div>
 
               <div className="hidden sm:block text-left pr-1">
                 <span className="block text-xs font-extrabold text-slate-900 leading-tight group-hover:text-[#02677f] transition-colors">
-                  {currentUser.nama}
+                  {displayName}
                 </span>
                 <span className="block text-[9px] font-mono font-bold text-slate-400 uppercase">
-                  {currentUser.role}
+                  GURU & ADMIN
                 </span>
               </div>
 
@@ -339,11 +269,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </svg>
             </button>
 
-            {/* ELEMENT POPUP DROPDOWN UTAMA */}
+            {/* POPUP DROPDOWN MENU */}
             {isDropdownOpen && (
               <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden py-1.5 animate-fadeIn">
-                
-                {/* 🔁 OPSI 1: JALUR PINTAS PADA SWITCH ROLE (HIGHLIGTED SKY BLUE) */}
                 <Link 
                   href="/wali/dashboard" 
                   onClick={() => setIsDropdownOpen(false)} 
@@ -355,7 +283,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <span>Pindah ke Portal Wali</span>
                 </Link>
 
-                {/* ⚙️ OPSI 2: MODAL EDIT PROFIL TRIGGER */}
                 <button
                   onClick={() => {
                     setIsDropdownOpen(false);
@@ -369,7 +296,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   <span>Edit Profil Saya</span>
                 </button>
 
-                {/* 🚪 OPSI 3: LOGOUT RESMI PORTAL PORT PORTAL ADMIN */}
                 <button
                   onClick={() => {
                     setIsDropdownOpen(false);
@@ -390,12 +316,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </header>
 
-      {/* MAIN PAGE BODY CONTAINER */}
+      {/* MAIN BODY */}
       <main className="max-w-7xl mx-auto px-4 lg:px-8 pt-6 pb-24 md:pb-12">
         {children}
       </main>
 
-      {/* MOBILE BOTTOM DOCK NAVBAR (Sempurna dekat jempol di HP) */}
+      {/* MOBILE BOTTOM DOCK NAVBAR */}
       <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 md:hidden px-3 py-2">
         <div className="flex justify-around items-center max-w-md mx-auto">
           {navItems.map((item) => {
@@ -418,12 +344,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </div>
 
-      {/* ================= MODAL EDIT PROFIL AKUN SAYA (MURNI BERSIH DARI LOGOUT) ================= */}
+      {/* MODAL EDIT PROFIL */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-2xl space-y-5 animate-fadeIn">
             
-            {/* Header Modal */}
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Pengaturan Profil Saya</h3>
@@ -439,14 +364,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </button>
             </div>
 
-            {/* BAGIAN UPLOAD FOTO PROFIL CUSTOM */}
+            {/* UPLOAD AVATAR */}
             <div className="flex flex-col items-center justify-center space-y-3 bg-slate-50/70 p-4 border border-slate-200/80 rounded-2xl">
               <div className="relative group">
                 <div className="w-20 h-20 rounded-2xl bg-[#02677f] text-white flex items-center justify-center text-2xl font-extrabold shadow-md overflow-hidden border-2 border-white ring-2 ring-sky-100">
-                  {currentUser.avatar_url ? (
-                    <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                  {displayAvatar ? (
+                    <img src={displayAvatar} alt="Profile" className="w-full h-full object-cover" />
                   ) : (
-                    <span>{currentUser.nama.charAt(0).toUpperCase()}</span>
+                    <span>{displayName.charAt(0).toUpperCase()}</span>
                   )}
                 </div>
 
@@ -474,10 +399,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               )}
             </div>
 
-            {/* FORM INPUT UBAH IDENTITAS */}
+            {/* FORM IDENTITAS */}
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nama Lengkap Anda</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Nama Lengkap</label>
                 <input 
                   type="text" 
                   value={formData.nama}
@@ -488,28 +413,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alamat Email Login</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alamat Email Login (Clerk)</label>
                 <input 
                   type="email" 
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 placeholder:text-slate-400 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
-                  placeholder="contoh@cahayahati.sch.id"
+                  disabled
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-400 bg-slate-100 cursor-not-allowed outline-none"
                 />
+                <p className="text-[9px] text-slate-400 font-medium">Email dikelola langsung melalui sistem Clerk.</p>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Kata Sandi Baru (Opsional)</label>
-                <input 
-                  type="password" 
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 placeholder:text-slate-400 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
-                  placeholder="Kosongkan jika tidak ingin mengubah kata sandi"
-                />
-              </div>
-
-              {/* ACTION BUTTONS SIMPAN & BATAL */}
               <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
                 <button 
                   type="button" 
@@ -531,7 +444,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       )}
 
-      {/* GLOBAL TOAST NOTIFICATION */}
+      {/* TOAST */}
       {toast.isOpen && (
         <div className="fixed top-5 right-5 z-50 animate-fadeIn pointer-events-none">
           <div className={`px-4 py-3 rounded-2xl shadow-lg border text-xs font-bold flex items-center gap-2.5 bg-white ${

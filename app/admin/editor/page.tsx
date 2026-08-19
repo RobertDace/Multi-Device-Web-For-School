@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 
 interface AktivitasItem {
   id: string;
@@ -16,13 +15,13 @@ export default function AdminEditorLandingPage() {
   const [search, setSearch] = useState('');
   const [aktivitasList, setAktivitasList] = useState<AktivitasItem[]>([]);
   const [loadingSidebar, setLoadingSidebar] = useState(true);
-  
+
   // State Modal Controls & Active Tab Switcher ('artikel' | 'hero')
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeModalTab, setActiveModalTab] = useState<'artikel' | 'hero'>('artikel');
   const [selectedArtikel, setSelectedArtikel] = useState<AktivitasItem | null>(null);
 
-  // State Image Upload Engine (Supabase Storage)
+  // State Image Upload Engine
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadingFileName, setUploadingFileName] = useState('');
@@ -38,7 +37,7 @@ export default function AdminEditorLandingPage() {
     isOpen: false, message: '', onConfirm: () => {}
   });
 
-  // State Hero Section Data (Re-branded TK CAHAYA HATI)
+  // State Hero Section Data
   const [heroData, setHeroData] = useState({
     headline: 'Bermain Bersama, Belajar Ceria di TK CAHAYA HATI',
     subDescription: 'Membentuk karakter anak didik yang kreatif, berakhlak mulia, dan siap menyongsong masa depan cerah dengan pendekatan pembelajaran interaktif.'
@@ -73,15 +72,16 @@ export default function AdminEditorLandingPage() {
   const fetchKontenSidebar = async () => {
     setLoadingSidebar(true);
     try {
-      const { data, error } = await supabase
-        .from('aktivitas')
-        .select('*')
-        .order('tanggal', { ascending: false });
-
-      if (error) throw error;
-      if (data) setAktivitasList(data);
+      const res = await fetch('/api/aktivitas');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setAktivitasList(json.data);
+      } else if (Array.isArray(json)) {
+        setAktivitasList(json);
+      }
     } catch (err: any) {
-      console.error('Gagal memuat konten:', err.message);
+      console.error('Gagal memuat konten:', err);
+      showToast('Gagal memuat daftar artikel kegiatan.', 'error');
     } finally {
       setLoadingSidebar(false);
     }
@@ -96,12 +96,12 @@ export default function AdminEditorLandingPage() {
     try {
       showToast('Teks beranda utama (Hero Section) berhasil diperbarui!', 'success');
       setIsModalOpen(false);
-    } catch (err: any) {
+    } catch {
       showToast('Gagal memperbarui teks Hero Section.', 'error');
     }
   };
 
-  const handleCanvasImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCanvasImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -112,45 +112,33 @@ export default function AdminEditorLandingPage() {
 
     setIsUploadingImage(true);
     setUploadingFileName(file.name);
-    setUploadProgress(10);
+    setUploadProgress(20);
 
-    const progressInterval = setInterval(() => {
-      setUploadProgress((prev: number) => {
-        if (prev >= 90) {
-          clearInterval(progressInterval);
-          return 90;
-        }
-        return prev + Math.floor(Math.random() * 15) + 5;
-      });
-    }, 100);
+    const reader = new FileReader();
 
-    try {
-      const fileExtension = file.name.split('.').pop();
-      const cleanFileName = `${Date.now()}_canvas_${Math.floor(100 + Math.random() * 900)}.${fileExtension}`;
-      const filePath = `public/${cleanFileName}`;
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percent);
+      }
+    };
 
-      const { error: uploadError } = await supabase.storage
-        .from('aktivitas-images')
-        .upload(filePath, file, { cacheControl: '3600', upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      clearInterval(progressInterval);
+    reader.onloadend = () => {
       setUploadProgress(100);
-
-      const { data } = supabase.storage.from('aktivitas-images').getPublicUrl(filePath);
-
+      const base64Url = reader.result as string;
       setTimeout(() => {
-        setCanvasData((prev: Omit<AktivitasItem, 'id'>) => ({ ...prev, gambar_url: data.publicUrl }));
+        setCanvasData((prev) => ({ ...prev, gambar_url: base64Url }));
         setIsUploadingImage(false);
-        showToast('Gambar sampul artikel berhasil diunggah!', 'success');
-      }, 400);
+        showToast('Gambar sampul artikel berhasil diproses!', 'success');
+      }, 300);
+    };
 
-    } catch (err: any) {
-      clearInterval(progressInterval);
+    reader.onerror = () => {
       setIsUploadingImage(false);
-      showToast(`Gagal mengunggah gambar: ${err.message}`, 'error');
-    }
+      showToast('Gagal memproses berkas gambar.', 'error');
+    };
+
+    reader.readAsDataURL(file);
   };
 
   const handleOpenNewModal = (tab: 'artikel' | 'hero' = 'artikel') => {
@@ -167,10 +155,10 @@ export default function AdminEditorLandingPage() {
     setActiveModalTab('artikel');
     setCanvasData({
       judul: item.judul,
-      kategori: item.kategori,
-      tanggal: item.tanggal,
+      kategori: item.kategori || 'Kegiatan',
+      tanggal: item.tanggal ? item.tanggal.split('T')[0] : '',
       gambar_url: item.gambar_url || '',
-      deskripsi: item.deskripsi
+      deskripsi: item.deskripsi || ''
     });
     setIsModalOpen(true);
   };
@@ -193,24 +181,32 @@ export default function AdminEditorLandingPage() {
 
     try {
       if (selectedArtikel) {
-        const { error } = await supabase
-          .from('aktivitas')
-          .update({
+        // Mode UPDATE (PUT)
+        const res = await fetch(`/api/aktivitas/${selectedArtikel.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             judul: canvasData.judul.trim(),
+            kategori: canvasData.kategori,
             tanggal: canvasData.tanggal,
             gambar_url: canvasData.gambar_url,
             deskripsi: canvasData.deskripsi.trim()
           })
-          .eq('id', selectedArtikel.id);
+        });
 
-        if (error) throw error;
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message || 'Gagal memperbarui');
         showToast('Liputan artikel kegiatan sukses diperbarui!', 'success');
       } else {
-        const { error } = await supabase
-          .from('aktivitas')
-          .insert([canvasData]);
+        // Mode INSERT (POST)
+        const res = await fetch('/api/aktivitas', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(canvasData)
+        });
 
-        if (error) throw error;
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message || 'Gagal menambahkan');
         showToast('Liputan artikel baru berhasil diterbitkan ke website!', 'success');
       }
 
@@ -227,18 +223,19 @@ export default function AdminEditorLandingPage() {
       message: `Apakah Anda yakin ingin menghapus liputan artikel "${item.judul}" secara permanen?`,
       onConfirm: async () => {
         try {
-          const { error } = await supabase
-            .from('aktivitas')
-            .delete()
-            .eq('id', item.id);
+          const res = await fetch(`/api/aktivitas/${item.id}`, {
+            method: 'DELETE'
+          });
 
-          if (error) throw error;
+          const result = await res.json();
+          if (!res.ok || !result.success) throw new Error(result.message || 'Gagal menghapus');
+
           fetchKontenSidebar();
           showToast('Artikel kegiatan sukses dihapus.', 'success');
         } catch (err: any) {
           showToast(`Gagal menghapus liputan: ${err.message}`, 'error');
         } finally {
-          setConfirmDialog((prev: any) => ({ ...prev, isOpen: false }));
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
       }
     });
@@ -260,7 +257,6 @@ export default function AdminEditorLandingPage() {
           <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Manajemen Konten Web</h1>
           <p className="text-xs text-slate-400 font-medium mt-0.5">Kelola informasi Hero Section dan publikasi berita landing page TK CAHAYA HATI.</p>
         </div>
-        {/* Tombol Aksi Multi-Fungsi Desktop */}
         <button 
           onClick={() => handleOpenNewModal('artikel')} 
           className="hidden md:flex bg-[#02677f] hover:bg-[#005468] text-white px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition-all items-center gap-1.5"
@@ -292,7 +288,7 @@ export default function AdminEditorLandingPage() {
         </button>
       </div>
 
-      {/* SLEEK SEARCH BAR */}
+      {/* SEARCH BAR */}
       <div className="relative max-w-md w-full mt-4">
         <input 
           type="text" 
@@ -322,7 +318,6 @@ export default function AdminEditorLandingPage() {
               <div key={artikel.id} className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between shadow-3xs hover:shadow-xs transition-all group animate-fadeIn space-y-3">
                 <div className="space-y-2.5">
                   <div className="flex gap-3 items-center">
-                    {/* Thumbnail Cover Render */}
                     <div className="w-14 h-14 rounded-xl bg-slate-50 border border-slate-100 overflow-hidden shrink-0 flex items-center justify-center text-slate-300">
                       {artikel.gambar_url ? (
                         <img src={artikel.gambar_url} alt="Cover" className="w-full h-full object-cover" />
@@ -374,7 +369,7 @@ export default function AdminEditorLandingPage() {
         )}
       </div>
 
-      {/* FLOATING THUMB-ACTION BUTTON FOR MOBILE */}
+      {/* FLOATING ACTION BUTTON (MOBILE) */}
       <div className="fixed bottom-[92px] right-4 left-4 md:hidden z-40">
         <button 
           onClick={() => handleOpenNewModal('artikel')} 
@@ -387,12 +382,11 @@ export default function AdminEditorLandingPage() {
         </button>
       </div>
 
-      {/* ================= SMART UNIFIED MODAL COMPONENT ================= */}
+      {/* MODAL EDIT & TAMBAH */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-lg w-full shadow-xl my-8 animate-fadeIn">
             
-            {/* Modal Header */}
             <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-3">
               <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
                 {selectedArtikel ? 'Modifikasi Artikel' : 'Pusat Editor Konten'}
@@ -402,7 +396,6 @@ export default function AdminEditorLandingPage() {
               </button>
             </div>
 
-            {/* TAB SELECTOR CHOOSER (PURE INLINE SVG ONLY) */}
             {!selectedArtikel && (
               <div className="flex border-b border-slate-100 text-[11px] font-bold text-slate-400 mb-4">
                 <button 
@@ -428,7 +421,7 @@ export default function AdminEditorLandingPage() {
               </div>
             )}
 
-            {/* TAB CONTENT 1: FORM INPUT ARTIKEL / KEGIATAN */}
+            {/* TAB ARTIKEL */}
             {activeModalTab === 'artikel' && (
               <form onSubmit={handlePublishCanvasArtikel} noValidate className="space-y-4 animate-fadeIn">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -455,7 +448,7 @@ export default function AdminEditorLandingPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase">Tanggal Publikasi Berita</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Tanggal Pelaksanaan</label>
                     <input 
                       type="date" 
                       value={canvasData.tanggal}
@@ -476,7 +469,7 @@ export default function AdminEditorLandingPage() {
                   </div>
                 </div>
 
-                {/* DRAG & DROP IMAGE UPLOADER */}
+                {/* IMAGE UPLOADER */}
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Gambar Sampul Berita</label>
                   {isUploadingImage ? (
@@ -494,11 +487,11 @@ export default function AdminEditorLandingPage() {
                       <div className="flex items-center gap-3 truncate">
                         <img src={canvasData.gambar_url} alt="Cover Preview" className="w-10 h-10 rounded-lg object-cover bg-slate-50 border border-slate-100 shrink-0" />
                         <div className="truncate">
-                          <span className="block text-xs font-bold text-slate-800 truncate">sampul_artikel.png</span>
+                          <span className="block text-xs font-bold text-slate-800 truncate">sampul_terpasang.png</span>
                           <span className="block text-[9px] font-bold text-emerald-600">Gambar terlampir</span>
                         </div>
                       </div>
-                      <button type="button" onClick={() => setCanvasData(prev => ({ ...prev, gambar_url: '' }))} className="text-[10px] font-bold text-rose-600 hover:text-rose-700 px-2">Copot</button>
+                      <button type="button" onClick={() => setCanvasData((prev) => ({ ...prev, gambar_url: '' }))} className="text-[10px] font-bold text-rose-600 hover:text-rose-700 px-2">Copot</button>
                     </div>
                   ) : (
                     <div className="relative border-2 border-dashed border-slate-200 hover:border-[#02677f] rounded-xl p-4 text-center bg-slate-50/20 transition-colors cursor-pointer group">
@@ -544,7 +537,7 @@ export default function AdminEditorLandingPage() {
               </form>
             )}
 
-            {/* TAB CONTENT 2: FORM EDIT HERO SECTION */}
+            {/* TAB HERO */}
             {activeModalTab === 'hero' && (
               <form onSubmit={handleSaveHeroText} noValidate className="space-y-4 animate-fadeIn">
                 <div className="space-y-1">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { UserButton } from '@clerk/nextjs';
 
 interface SiswaData {
   id: string;
@@ -49,7 +49,6 @@ export default function WaliDashboardPage() {
   const [agendaList, setAgendaList] = useState<AgendaData[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  // State Toast Notifikasi
   const [toast, setToast] = useState<{ isOpen: boolean; message: string; type: 'success' | 'error' | 'warning' }>({
     isOpen: false, message: '', type: 'success'
   });
@@ -74,43 +73,16 @@ export default function WaliDashboardPage() {
   const fetchWaliDashboardData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch data profil siswa dari Supabase
-      const { data: siswaData, error: siswaErr } = await supabase
-        .from('siswa')
-        .select('*')
-        .limit(1)
-        .single();
+      const res = await fetch('/api/wali/dashboard');
+      if (!res.ok) throw new Error('Gagal mengambil data dari server');
 
-      if (siswaErr && siswaErr.code !== 'PGRST116') throw siswaErr;
-
-      if (siswaData) {
-        setSiswa(siswaData);
-
-        // 2. Fetch data Rapor siswa yang berstatus 'Published'
-        const { data: raporData } = await supabase
-          .from('rapor')
-          .select('*')
-          .eq('nis', siswaData.nis)
-          .eq('status', 'Published')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (raporData) setRapor(raporData);
-      }
-
-      // 3. Fetch Agenda Kegiatan Sekolah Terdekat
-      const { data: agendaData } = await supabase
-        .from('aktivitas')
-        .select('*')
-        .order('tanggal', { ascending: true })
-        .limit(6);
-
-      if (agendaData) setAgendaList(agendaData);
-
+      const data = await res.json();
+      if (data.siswa) setSiswa(data.siswa);
+      if (data.rapor) setRapor(data.rapor);
+      if (data.agendaList) setAgendaList(data.agendaList);
     } catch (err: any) {
       console.error('Gagal memuat dashboard wali murid:', err.message);
-      showToast('Koneksi ke server cloud Supabase terganggu.', 'error');
+      showToast('Koneksi ke database server terganggu.', 'error');
     } finally {
       setLoading(false);
     }
@@ -122,16 +94,18 @@ export default function WaliDashboardPage() {
 
   return (
     <div className="pb-28 font-sans space-y-6">
-      
       {/* HEADER UTAMA PORTAL WALI */}
       <header className="border-b border-slate-200/80 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Portal Wali Murid</h1>
           <p className="text-xs text-slate-500 font-semibold mt-0.5">Pantau perkembangan anak didik & informasi resmi TK CAHAYA HATI.</p>
         </div>
-        <div className="inline-flex items-center gap-2 bg-sky-50 border border-sky-100 px-3.5 py-1.5 rounded-2xl shadow-3xs">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#02677f] animate-pulse" />
-          <span className="text-xs font-extrabold text-[#02677f]">Tahun Ajaran 2026/2027</span>
+        <div className="flex items-center gap-3">
+          <div className="inline-flex items-center gap-2 bg-sky-50 border border-sky-100 px-3.5 py-1.5 rounded-2xl shadow-3xs">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#02677f] animate-pulse" />
+            <span className="text-xs font-extrabold text-[#02677f]">Tahun Ajaran 2026/2027</span>
+          </div>
+          <UserButton />
         </div>
       </header>
 
@@ -141,8 +115,7 @@ export default function WaliDashboardPage() {
         </div>
       ) : (
         <div className="space-y-6">
-
-          {/* 1. BANNER PROFIL ANANDA (FULL WIDTH DESKTOP BANNER) */}
+          {/* BANNER PROFIL ANANDA */}
           {siswa ? (
             <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-[#02677f] rounded-3xl p-5 md:p-6 text-white shadow-md space-y-4 animate-fadeIn">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -175,13 +148,11 @@ export default function WaliDashboardPage() {
             </div>
           )}
 
-          {/* 2. MAIN BENTO GRID SYSTEM FOR PC (2 BALANCED COLUMNS) */}
+          {/* MAIN BENTO GRID */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-
-            {/* SISI KIRI (2 KOLOM LAPTOP): JURNAL + AGENDA MENDATANG */}
+            {/* SISI KIRI: JURNAL & AGENDA */}
             <div className="lg:col-span-2 space-y-6">
-              
-              {/* KARTU JURNAL HARIAN */}
+              {/* KARTU JURNAL */}
               <div className="bg-white rounded-3xl border border-slate-200/80 p-5 md:p-6 shadow-3xs space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div className="flex items-center gap-2.5">
@@ -201,7 +172,6 @@ export default function WaliDashboardPage() {
                   </span>
                 </div>
 
-                {/* TEKS NARASI JURNAL HARIAN */}
                 <div className="space-y-3.5">
                   <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-1.5">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Catatan Aktivitas Belajar & Bermain</span>
@@ -210,7 +180,6 @@ export default function WaliDashboardPage() {
                     </p>
                   </div>
 
-                  {/* FOTO DOKUMENTASI JURNAL HARIAN */}
                   {siswa?.foto_jurnal && (
                     <div className="space-y-1.5">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Dokumentasi Foto Hari Ini</span>
@@ -235,7 +204,7 @@ export default function WaliDashboardPage() {
                 </div>
               </div>
 
-              {/* KARTU AGENDA KEGIATAN MENDATANG (MASUK KE KOLOM KIRI SUPAYA TIDAK ADA RUANG KOSONG) */}
+              {/* KARTU AGENDA */}
               <div className="bg-white rounded-3xl border border-slate-200/80 p-5 md:p-6 shadow-3xs space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div className="flex items-center gap-2.5">
@@ -276,13 +245,11 @@ export default function WaliDashboardPage() {
                   )}
                 </div>
               </div>
-
             </div>
 
-            {/* SISI KANAN (1 KOLOM LAPTOP): RAPOR DIGITAL + PUSAT INFORMASI */}
+            {/* SISI KANAN: RAPOR & KONTAK */}
             <div className="lg:col-span-1 space-y-6">
-              
-              {/* KARTU RAPOR DIGITAL TERBIT */}
+              {/* KARTU RAPOR */}
               <div className="bg-white rounded-3xl border border-slate-200/80 p-5 md:p-6 shadow-3xs space-y-4">
                 <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
                   <div className="w-9 h-9 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700">
@@ -298,8 +265,6 @@ export default function WaliDashboardPage() {
 
                 {rapor ? (
                   <div className="space-y-3.5 animate-fadeIn">
-                    
-                    {/* STATS SKOR MINI */}
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center space-y-0.5">
                         <span className="text-[9px] font-bold text-slate-400 uppercase">Sosial Emosional</span>
@@ -311,7 +276,6 @@ export default function WaliDashboardPage() {
                       </div>
                     </div>
 
-                    {/* KEHADIRAN */}
                     <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex justify-between items-center text-xs font-bold">
                       <span className="text-[10px] text-slate-400 uppercase">Kehadiran (H/I/A):</span>
                       <div className="font-mono text-slate-900">
@@ -319,7 +283,6 @@ export default function WaliDashboardPage() {
                       </div>
                     </div>
 
-                    {/* CATATAN GURU */}
                     <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-1">
                       <span className="text-[9px] font-bold text-slate-400 uppercase block">Ulasan Wali Kelas</span>
                       <p className="text-xs font-bold text-slate-900 leading-relaxed line-clamp-4">
@@ -327,7 +290,6 @@ export default function WaliDashboardPage() {
                       </p>
                     </div>
 
-                    {/* TOMBOL UNDUH PDF */}
                     {rapor.pdf_url && (
                       <a 
                         href={rapor.pdf_url} 
@@ -341,7 +303,6 @@ export default function WaliDashboardPage() {
                         Unduh Lembar PDF Rapor
                       </a>
                     )}
-
                   </div>
                 ) : (
                   <div className="bg-slate-50 rounded-2xl p-6 text-center space-y-1 border border-slate-100">
@@ -351,7 +312,7 @@ export default function WaliDashboardPage() {
                 )}
               </div>
 
-              {/* KARTU PUSAT INFORMASI & KONTAK SEKOLAH (PENYEIMBANG KOLOM KANAN) */}
+              {/* KARTU KONTAK SEKOLAH */}
               <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-5 text-white shadow-3xs space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -364,15 +325,12 @@ export default function WaliDashboardPage() {
                   Hubungi staf administrasi atau wali kelas TK CAHAYA HATI pada jam kerja KBM (07.30 - 14.00 WITA).
                 </p>
               </div>
-
             </div>
-
           </div>
-
         </div>
       )}
 
-      {/* MODAL PREVIEW FOTO DOKUMENTASI */}
+      {/* MODAL PREVIEW FOTO */}
       {selectedImage && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="relative max-w-2xl w-full bg-white rounded-3xl p-3 border border-slate-200 shadow-2xl animate-fadeIn space-y-3">
@@ -394,7 +352,7 @@ export default function WaliDashboardPage() {
         </div>
       )}
 
-      {/* TOAST NOTIFIKASI */}
+      {/* TOAST */}
       {toast.isOpen && (
         <div className="fixed top-5 right-5 z-50 animate-fadeIn pointer-events-none">
           <div className={`px-4 py-3 rounded-2xl shadow-lg border text-xs font-bold flex items-center gap-2.5 bg-white ${
@@ -405,7 +363,6 @@ export default function WaliDashboardPage() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

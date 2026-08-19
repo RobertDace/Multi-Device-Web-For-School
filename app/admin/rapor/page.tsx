@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 
 interface RaporItem {
   id: string;
@@ -22,6 +21,7 @@ interface RaporItem {
 }
 
 interface SiswaDropdownItem {
+  id: string;
   nis: string;
   nama: string;
   kelas: string;
@@ -31,7 +31,7 @@ export default function AdminRaporPage() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRapor, setEditingRapor] = useState<RaporItem | null>(null);
-  
+
   // State Navigasi Tab Modal
   const [activeTab, setActiveTab] = useState<'identitas' | 'nilai' | 'absensi'>('identitas');
 
@@ -43,7 +43,7 @@ export default function AdminRaporPage() {
   const [siswaSearchInput, setSiswaSearchQuery] = useState('');
   const [isDropdownActive, setIsDropdownActive] = useState(false);
 
-  // Custom Dropdown Control States (Anti Native OS Dropdown UI)
+  // Custom Dropdown Control States
   const [isSoftSkillsDropdownOpen, setIsSoftSkillsDropdownOpen] = useState(false);
   const [isAcademicDropdownOpen, setIsAcademicDropdownOpen] = useState(false);
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
@@ -51,18 +51,18 @@ export default function AdminRaporPage() {
   const softSkillsOptions = [
     { label: 'Sangat Baik (4)', value: 4 },
     { label: 'Baik (3)', value: 3 },
-    { label: 'Cukup (2)', value: 2 }
+    { label: 'Cukup (2)', value: 2 },
   ];
 
   const academicOptions = [
     { label: 'Sangat Baik (3)', value: 3 },
     { label: 'Berkembang (2)', value: 2 },
-    { label: 'Mulai Berkembang (1)', value: 1 }
+    { label: 'Mulai Berkembang (1)', value: 1 },
   ];
 
   const statusOptions = [
     { label: 'Simpan Sebagai Draft', value: 'Draft' },
-    { label: 'Terbitkan Langsung Online', value: 'Published' }
+    { label: 'Terbitkan Langsung Online', value: 'Published' },
   ];
 
   // Upload Engine States
@@ -73,10 +73,10 @@ export default function AdminRaporPage() {
   // Form Validation & Notification States
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ isOpen: boolean; message: string; type: 'success' | 'error' | 'warning' }>({
-    isOpen: false, message: '', type: 'success'
+    isOpen: false, message: '', type: 'success',
   });
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; message: string; onConfirm: () => void }>({
-    isOpen: false, message: '', onConfirm: () => {}
+    isOpen: false, message: '', onConfirm: () => {},
   });
 
   const [formData, setFormData] = useState<Omit<RaporItem, 'id'>>({
@@ -84,7 +84,7 @@ export default function AdminRaporPage() {
     soft_skills_score: 4, soft_skills_desc: '',
     academic_score: 2, academic_desc: '',
     hadir: 20, izin: 0, alfa: 0, catatan_guru: '',
-    pdf_url: '', pdf_name: ''
+    pdf_url: '', pdf_name: '',
   });
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
@@ -95,20 +95,23 @@ export default function AdminRaporPage() {
   const fetchDataMaster = async () => {
     setLoadingData(true);
     try {
-      const { data: raporData, error: raporErr } = await supabase
-        .from('rapor')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (raporErr) throw raporErr;
-      if (raporData) setRaporList(raporData);
+      const [raporRes, siswaRes] = await Promise.all([
+        fetch('/api/rapor'),
+        fetch('/api/siswa'),
+      ]);
 
-      const { data: siswaData, error: siswaErr } = await supabase
-        .from('siswa')
-        .select('nis, nama, kelas');
-      if (siswaErr) throw siswaErr;
-      if (siswaData) setSiswaOptions(siswaData);
+      const raporJson = await raporRes.json();
+      const siswaJson = await siswaRes.json();
+
+      if (raporJson.success && Array.isArray(raporJson.data)) {
+        setRaporList(raporJson.data);
+      }
+      if (siswaJson.success && Array.isArray(siswaJson.data)) {
+        setSiswaOptions(siswaJson.data);
+      }
     } catch (err: any) {
-      console.error('Gagal mengambil data:', err.message);
+      console.error('Gagal mengambil data:', err);
+      showToast('Gagal terhubung ke database server.', 'error');
     } finally {
       setLoadingData(false);
     }
@@ -118,7 +121,7 @@ export default function AdminRaporPage() {
     fetchDataMaster();
   }, []);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -134,49 +137,41 @@ export default function AdminRaporPage() {
 
     setUploadingFileName(file.name);
     setIsUploadingFile(true);
-    setUploadProgress(5);
+    setUploadProgress(20);
 
-    const progressInterval = setInterval(() => {
-      setUploadProgress((prev: number) => {
-        if (prev >= 90) {
-          clearInterval(progressInterval);
-          return 90;
-        }
-        return prev + Math.floor(Math.random() * 15) + 5;
-      });
-    }, 150);
+    const reader = new FileReader();
 
-    try {
-      const fileExtension = file.name.split('.').pop();
-      const cleanFileName = `${Date.now()}_rapor_${formData.nis || 'siswa'}.${fileExtension}`;
-      const filePath = `public/${cleanFileName}`;
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percent);
+      }
+    };
 
-      const { error: uploadError } = await supabase.storage
-        .from('rapor-pdfs')
-        .upload(filePath, file, { cacheControl: '3600', upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      clearInterval(progressInterval);
+    reader.onloadend = () => {
       setUploadProgress(100);
-
-      const { data } = supabase.storage.from('rapor-pdfs').getPublicUrl(filePath);
-
+      const base64Url = reader.result as string;
       setTimeout(() => {
-        setFormData((prev: Omit<RaporItem, 'id'>) => ({ ...prev, pdf_name: file.name, pdf_url: data.publicUrl }));
+        setFormData((prev) => ({
+          ...prev,
+          pdf_name: file.name,
+          pdf_url: base64Url,
+        }));
         setIsUploadingFile(false);
-        showToast('Berkas dokumen rapor sukses diunggah ke server cloud!', 'success');
-      }, 400);
+        showToast('Berkas dokumen rapor berhasil diproses!', 'success');
+      }, 300);
+    };
 
-    } catch (err: any) {
-      clearInterval(progressInterval);
+    reader.onerror = () => {
       setIsUploadingFile(false);
-      showToast(`Gagal mengunggah file: ${err.message}`, 'error');
-    }
+      showToast('Gagal memproses berkas PDF.', 'error');
+    };
+
+    reader.readAsDataURL(file);
   };
 
   const handleRemoveFile = () => {
-    setFormData((prev: Omit<RaporItem, 'id'>) => ({ ...prev, pdf_name: '', pdf_url: '' }));
+    setFormData((prev) => ({ ...prev, pdf_name: '', pdf_url: '' }));
     showToast('Lampiran berkas rapor dicabut.', 'warning');
   };
 
@@ -193,7 +188,7 @@ export default function AdminRaporPage() {
       soft_skills_score: 4, soft_skills_desc: '',
       academic_score: 2, academic_desc: '',
       hadir: 20, izin: 0, alfa: 0, catatan_guru: '',
-      pdf_url: '', pdf_name: ''
+      pdf_url: '', pdf_name: '',
     });
     setIsModalOpen(true);
   };
@@ -211,11 +206,11 @@ export default function AdminRaporPage() {
   };
 
   const handleSelectStudent = (siswa: SiswaDropdownItem) => {
-    setFormData((prev: Omit<RaporItem, 'id'>) => ({ 
+    setFormData((prev) => ({ 
       ...prev, 
       nama_siswa: siswa.nama, 
       nis: siswa.nis, 
-      kelas: siswa.kelas 
+      kelas: siswa.kelas,
     }));
     setSiswaSearchQuery(siswa.nama);
     setIsDropdownActive(false);
@@ -244,30 +239,25 @@ export default function AdminRaporPage() {
 
     try {
       if (editingRapor) {
-        const { error } = await supabase
-          .from('rapor')
-          .update({
-            soft_skills_score: Number(formData.soft_skills_score),
-            soft_skills_desc: formData.soft_skills_desc.trim(),
-            academic_score: Number(formData.academic_score),
-            academic_desc: formData.academic_desc.trim(),
-            hadir: Number(formData.hadir),
-            izin: Number(formData.izin),
-            alfa: Number(formData.alfa),
-            catatan_guru: formData.catatan_guru.trim(),
-            status: formData.status,
-            pdf_url: formData.pdf_url,
-            pdf_name: formData.pdf_name
-          })
-          .eq('id', editingRapor.id);
-
-        if (error) throw error;
+        const res = await fetch(`/api/rapor/${editingRapor.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message);
         showToast('Berkas rekapitulasi rapor berhasil diperbarui!', 'success');
       } else {
-        const { error } = await supabase.from('rapor').insert([formData]);
-        if (error) throw error;
+        const res = await fetch('/api/rapor', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message);
         showToast('Lembar rapor baru sukses diterbitkan!', 'success');
       }
+
       fetchDataMaster();
       setIsModalOpen(false);
     } catch (err: any) {
@@ -278,12 +268,18 @@ export default function AdminRaporPage() {
   const handleToggleStatus = async (item: RaporItem) => {
     const newStatus = item.status === 'Published' ? 'Draft' : 'Published';
     try {
-      const { error } = await supabase.from('rapor').update({ status: newStatus }).eq('id', item.id);
-      if (error) throw error;
+      const res = await fetch(`/api/rapor/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message);
+
       fetchDataMaster();
       showToast(`Status berkas diubah menjadi ${newStatus === 'Published' ? 'Terbit Online' : 'Draft'}`, 'success');
     } catch (err: any) {
-      showToast(err.message, 'error');
+      showToast(err.message || 'Gagal mengubah status', 'error');
     }
   };
 
@@ -293,18 +289,28 @@ export default function AdminRaporPage() {
       message: `Apakah Anda yakin ingin menghapus rekapitulasi rapor milik "${item.nama_siswa}" secara permanen?`,
       onConfirm: async () => {
         try {
-          const { error } = await supabase.from('rapor').delete().eq('id', item.id);
-          if (error) throw error;
+          const res = await fetch(`/api/rapor/${item.id}`, {
+            method: 'DELETE',
+          });
+          const result = await res.json();
+          if (!res.ok || !result.success) throw new Error(result.message);
+
           fetchDataMaster();
           showToast('Dokumen rekapitulasi rapor berhasil dihapus.', 'success');
         } catch (err: any) {
           showToast(`Gagal menghapus dokumen: ${err.message}`, 'error');
         } finally {
-          setConfirmDialog((prev: any) => ({ ...prev, isOpen: false }));
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
-      }
+      },
     });
   };
+
+  const filteredList = raporList.filter(
+    (item) =>
+      item.nama_siswa?.toLowerCase().includes(globalSearch.toLowerCase()) ||
+      item.nis?.includes(globalSearch)
+  );
 
   return (
     <div className="pb-28 font-sans">
@@ -327,19 +333,19 @@ export default function AdminRaporPage() {
       </div>
 
       {loadingData ? (
-        <div className="p-8 text-center text-xs font-bold text-slate-400 animate-pulse">Menghubungkan ke server cloud Supabase...</div>
+        <div className="p-8 text-center text-xs font-bold text-slate-400 animate-pulse">Menghubungkan ke database server...</div>
       ) : (
         <>
-          {/* VIEW MOBILE LAYAR HP */}
+          {/* VIEW MOBILE */}
           <div className="grid grid-cols-1 gap-4 md:hidden mt-5">
-            {raporList.filter(item => item.nama_siswa?.toLowerCase().includes(globalSearch.toLowerCase()) || item.nis?.includes(globalSearch)).map((r) => (
+            {filteredList.map((r) => (
               <div key={r.id} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-3xs animate-fadeIn">
                 <div className="flex justify-between items-start">
                   <div>
                     <h4 className="font-bold text-slate-900 text-sm leading-tight">{r.nama_siswa}</h4>
                     <span className="text-[10px] font-mono font-bold text-slate-400 block mt-1">NIS: {r.nis}</span>
                   </div>
-                  <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 text-slate-700 shrink-0">{r.kelas.replace(' Class', '')}</span>
+                  <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 text-slate-700 shrink-0">{r.kelas?.replace(' Class', '')}</span>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
@@ -376,7 +382,7 @@ export default function AdminRaporPage() {
             ))}
           </div>
 
-          {/* VIEW LAPTOP MODE */}
+          {/* VIEW LAPTOP */}
           <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden mt-4">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
@@ -390,14 +396,20 @@ export default function AdminRaporPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-                {raporList.filter(item => item.nama_siswa?.toLowerCase().includes(globalSearch.toLowerCase()) || item.nis?.includes(globalSearch)).map((r) => (
+                {filteredList.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4 pl-6">
                       <div className="font-bold text-slate-900 text-sm">{r.nama_siswa}</div>
                       <div className="text-[10px] text-slate-400 font-mono font-bold mt-0.5 uppercase">NIS: {r.nis}</div>
                     </td>
                     <td className="p-4 font-semibold text-slate-700">{r.kelas}</td>
-                    <td className="p-4"><a href={r.pdf_url} target="_blank" rel="noreferrer" className="text-rose-600 font-bold">Lihat Rapor</a></td>
+                    <td className="p-4">
+                      {r.pdf_url ? (
+                        <a href={r.pdf_url} target="_blank" rel="noreferrer" className="text-rose-600 font-bold hover:underline">Lihat Rapor</a>
+                      ) : (
+                        <span className="text-slate-400 italic">No File</span>
+                      )}
+                    </td>
                     <td className="p-4 font-mono font-bold text-slate-500"><span className="text-emerald-600">{r.hadir}</span> / <span className="text-amber-500">{r.izin}</span> / <span className="text-rose-500">{r.alfa}</span></td>
                     <td className="p-4"><span className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg">{r.status}</span></td>
                     <td className="p-4 text-right pr-6 space-x-2">
@@ -412,7 +424,7 @@ export default function AdminRaporPage() {
         </>
       )}
 
-      {/* FLOATING ACTION BUTTON FOR MOBILE */}
+      {/* FLOATING ACTION BUTTON (MOBILE) */}
       <div className="fixed bottom-[92px] right-4 left-4 md:hidden z-40">
         <button onClick={handleOpenAdd} className="w-full bg-[#02677f] text-white py-3 rounded-2xl font-bold text-xs shadow-lg flex items-center justify-center gap-1.5 transition-all">
           <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5V19M5 12H19" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -420,18 +432,16 @@ export default function AdminRaporPage() {
         </button>
       </div>
 
-      {/* ================= MODAL EDITOR RAPOR (CUSTOM SLEEK DROPDOWNS & UNIFORM SIZING) ================= */}
+      {/* MODAL EDITOR RAPOR */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-xl w-full shadow-xl my-8 animate-fadeIn">
             
-            {/* Header Modal */}
             <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-3">
               <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">{editingRapor ? 'Modifikasi Rapor' : 'Buat Rapor Baru'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" strokeLinecap="round"/></svg></button>
             </div>
 
-            {/* Controller Header Navigation Tabs */}
             <div className="flex border-b border-slate-100 text-[11px] font-bold text-slate-400 mb-4 overflow-x-auto whitespace-nowrap">
               <button type="button" onClick={() => setActiveTab('identitas')} className={`pb-2.5 px-3 flex-1 border-b-2 transition-all ${activeTab === 'identitas' ? 'border-[#02677f] text-[#02677f]' : 'border-transparent text-slate-500'}`}>Identitas</button>
               <button type="button" onClick={() => setActiveTab('nilai')} className={`pb-2.5 px-3 flex-1 border-b-2 transition-all ${activeTab === 'nilai' ? 'border-[#02677f] text-[#02677f]' : 'border-transparent text-slate-500'}`}>Matriks Nilai</button>
@@ -439,8 +449,7 @@ export default function AdminRaporPage() {
             </div>
 
             <form onSubmit={handleSaveRapor} noValidate className="space-y-4">
-              
-              {/* TAB 1: IDENTITAS SISWA & PDF */}
+              {/* TAB 1: IDENTITAS & PDF */}
               {activeTab === 'identitas' && (
                 <div className="space-y-4 animate-fadeIn">
                   <div className="bg-slate-50/50 border border-slate-200 rounded-2xl p-4 space-y-2">
@@ -489,16 +498,13 @@ export default function AdminRaporPage() {
                 </div>
               )}
 
-              {/* TAB 2: MATRIKS KOMPETENSI NILAI (CUSTOM DIV DROPDOWNS REPLACING NATIVE SELECT) */}
+              {/* TAB 2: MATRIKS NILAI */}
               {activeTab === 'nilai' && (
                 <div className="space-y-4 animate-fadeIn">
-                  
-                  {/* SOFT SKILLS CARD */}
+                  {/* SOFT SKILLS */}
                   <div className="space-y-3 bg-slate-50/50 p-4 border border-slate-200 rounded-2xl">
                     <div className="flex justify-between items-center relative">
                       <label className="text-xs font-extrabold text-slate-900">Kecerdasan Sosial</label>
-                      
-                      {/* Custom Dropdown Trigger */}
                       <div className="relative w-48">
                         <button
                           type="button"
@@ -511,7 +517,6 @@ export default function AdminRaporPage() {
                           </svg>
                         </button>
 
-                        {/* Custom Dropdown Options Popover */}
                         {isSoftSkillsDropdownOpen && (
                           <div className="absolute right-0 top-[42px] w-full bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden divide-y divide-slate-100 animate-fadeIn">
                             {softSkillsOptions.map((opt) => (
@@ -545,12 +550,10 @@ export default function AdminRaporPage() {
                     />
                   </div>
 
-                  {/* ACADEMIC CARD */}
+                  {/* ACADEMIC */}
                   <div className="space-y-3 bg-slate-50/50 p-4 border border-slate-200 rounded-2xl">
                     <div className="flex justify-between items-center relative">
                       <label className="text-xs font-extrabold text-slate-900">Kognitif (Akademik)</label>
-                      
-                      {/* Custom Dropdown Trigger */}
                       <div className="relative w-48">
                         <button
                           type="button"
@@ -563,7 +566,6 @@ export default function AdminRaporPage() {
                           </svg>
                         </button>
 
-                        {/* Custom Dropdown Options Popover */}
                         {isAcademicDropdownOpen && (
                           <div className="absolute right-0 top-[42px] w-full bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden divide-y divide-slate-100 animate-fadeIn">
                             {academicOptions.map((opt) => (
@@ -596,11 +598,10 @@ export default function AdminRaporPage() {
                       className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none bg-white focus:border-[#02677f] transition-all" 
                     />
                   </div>
-
                 </div>
               )}
 
-              {/* TAB 3: REKAP ABSENSI & ULASAN KELAS */}
+              {/* TAB 3: ABSENSI & CATATAN */}
               {activeTab === 'absensi' && (
                 <div className="space-y-4 animate-fadeIn">
                   <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
@@ -614,9 +615,9 @@ export default function AdminRaporPage() {
                     <textarea rows={3} value={formData.catatan_guru || ''} onChange={(e)=>setFormData({...formData, catatan_guru: e.target.value})} className="w-full p-3 border rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 leading-relaxed resize-none outline-none border-slate-200 bg-slate-50/50 focus:bg-white focus:border-[#02677f]" placeholder="Tulis catatan umpan balik perkembangan anak..." />
                   </div>
 
-                  {/* CUSTOM DROPDOWN STATUS VISIBILITAS */}
+                  {/* CUSTOM DROPDOWN STATUS */}
                   <div className="space-y-1 relative">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase">Status Visibilitas Document</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Status Visibilitas Dokumen</label>
                     <div className="relative">
                       <button
                         type="button"
@@ -652,11 +653,10 @@ export default function AdminRaporPage() {
                       )}
                     </div>
                   </div>
-
                 </div>
               )}
 
-              {/* FOOTER ACTION BUTTONS */}
+              {/* FOOTER ACTIONS */}
               <div className="pt-2 border-t border-slate-100 flex justify-between items-center gap-2">
                 <div>
                   {activeTab !== 'identitas' && (
@@ -672,7 +672,6 @@ export default function AdminRaporPage() {
                   )}
                 </div>
               </div>
-
             </form>
           </div>
         </div>

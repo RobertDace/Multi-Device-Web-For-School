@@ -1,45 +1,42 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 
 interface PenggunaItem {
   id: string;
   nama: string;
   email: string;
   level_akses: string;
-  status_akun?: string;
-  created_at?: string;
+  avatar_url?: string;
+  nama_anak?: string;
 }
 
-export default function AdminUsersManagementPage() {
+export default function AdminUsersPage() {
+  const [usersList, setUsersList] = useState<PenggunaItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [userList, setUserList] = useState<PenggunaItem[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
+  const [filterRole, setFilterRole] = useState('Semua');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<PenggunaItem | null>(null);
+  const [selectedUser, setSelectedUser] = useState<PenggunaItem | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
-  // Custom Dropdown Engine State (Anti-Bleeding for Mobile UI)
-  const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
-  const roleOptions = ['GURU & ADMIN', 'WALI MURID', 'STAFF OPERASIONAL'];
-
-  // Validation & Dynamic States
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [toast, setToast] = useState<{ isOpen: boolean; message: string; type: 'success' | 'error' | 'warning' }>({
-    isOpen: false, message: '', type: 'success'
-  });
-  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; message: string; onConfirm: () => void }>({
-    isOpen: false, message: '', onConfirm: () => {}
-  });
-
-  // Form Input State
+  // Form State
   const [formData, setFormData] = useState({
     nama: '',
     email: '',
+    password: '',
     level_akses: 'GURU & ADMIN',
-    password: ''
+    avatar_url: '',
+  });
+
+  const [toast, setToast] = useState<{ isOpen: boolean; message: string; type: 'success' | 'error' | 'warning' }>({
+    isOpen: false, message: '', type: 'success',
+  });
+  
+  const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; message: string; onConfirm: () => void }>({
+    isOpen: false, message: '', onConfirm: () => {},
   });
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
@@ -47,307 +44,233 @@ export default function AdminUsersManagementPage() {
     setTimeout(() => setToast({ isOpen: false, message: '', type: 'success' }), 3500);
   };
 
-  const fetchUsersFromSupabase = async () => {
-    setLoadingData(true);
+  const fetchUsers = async () => {
+    setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('pengguna')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      if (data) {
-        const mappedData: PenggunaItem[] = data.map((item: any) => ({
-          id: item.id,
-          nama: item.nama || item.full_name || 'Pengguna Tanpa Nama',
-          email: item.email || '-',
-          level_akses: item.level_akses || item.role || 'GURU & ADMIN',
-          status_akun: item.status_akun || 'Aktif',
-          created_at: item.created_at
-        }));
-        setUserList(mappedData);
+      const res = await fetch('/api/users');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setUsersList(json.data);
       }
-    } catch (err: any) {
-      console.error('Gagal memuat daftar akun:', err.message);
-      showToast('Koneksi ke database otorisasi terganggu.', 'error');
+    } catch {
+      showToast('Gagal memuat daftar pengguna.', 'error');
     } finally {
-      setLoadingData(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchUsersFromSupabase();
+    fetchUsers();
   }, []);
 
-  const handleOpenAdd = () => {
-    setEditingUser(null);
-    setErrors({});
-    setIsRoleDropdownOpen(false);
-    setFormData({
-      nama: '',
-      email: '',
-      level_akses: 'GURU & ADMIN',
-      password: ''
-    });
+  const handleOpenModal = (user: PenggunaItem | null = null) => {
+    setSelectedUser(user);
+    setShowPassword(false);
+    if (user) {
+      setFormData({
+        nama: user.nama,
+        email: user.email,
+        password: '',
+        level_akses: user.level_akses,
+        avatar_url: user.avatar_url || '',
+      });
+    } else {
+      setFormData({
+        nama: '',
+        email: '',
+        password: '',
+        level_akses: 'GURU & ADMIN',
+        avatar_url: '',
+      });
+    }
     setIsModalOpen(true);
   };
 
-  const handleOpenEdit = (user: PenggunaItem) => {
-    setEditingUser(user);
-    setErrors({});
-    setIsRoleDropdownOpen(false);
-    setFormData({
-      nama: user.nama,
-      email: user.email,
-      level_akses: user.level_akses,
-      password: ''
-    });
-    setIsModalOpen(true);
-  };
-
-  const validateForm = (): boolean => {
-    const newErrors: Record<string, string> = {};
-    if (!formData.nama.trim()) newErrors.nama = 'Nama lengkap akun wajib diisi.';
-    if (!formData.email.trim()) newErrors.email = 'Alamat email aktif wajib diisi.';
-    if (!editingUser && !formData.password.trim()) newErrors.password = 'Kata sandi awal wajib ditentukan.';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // HANDLER SIMPAN USER (HANYA GUNAKAN status_akun)
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) {
-      showToast('Periksa kembali kolom inputan yang masih kosong!', 'warning');
+    if (!formData.nama.trim() || !formData.email.trim()) {
+      showToast('Nama lengkap dan email wajib diisi.', 'warning');
+      return;
+    }
+
+    if (!selectedUser && (!formData.password || formData.password.length < 8)) {
+      showToast('Kata sandi wajib diisi minimal 8 karakter.', 'warning');
       return;
     }
 
     try {
-      if (editingUser) {
-        // Mode Update Hak Akses
-        const { error } = await supabase
-          .from('pengguna')
-          .update({
-            nama: formData.nama.trim(),
-            email: formData.email.trim(),
-            level_akses: formData.level_akses,
-            status_akun: 'Aktif'
-          })
-          .eq('id', editingUser.id);
-
-        if (error) throw error;
-        showToast('Hak akses otoritas akun berhasil diperbarui!', 'success');
-      } else {
-        // Mode Registrasi Akun Baru
-        let validUserId = crypto.randomUUID();
-        let wasRateLimited = false;
-
-        // 1. Coba daftarkan akun via Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: formData.email.trim(),
-          password: formData.password.trim(),
-          options: {
-            data: {
-              full_name: formData.nama.trim(),
-              role: formData.level_akses
-            }
-          }
+      if (selectedUser) {
+        const res = await fetch(`/api/users/${selectedUser.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
         });
-
-        if (authData?.user?.id) {
-          validUserId = authData.user.id;
-        }
-
-        if (authError) {
-          if (authError.message.toLowerCase().includes('rate limit') || authError.status === 429) {
-            wasRateLimited = true;
-          } else {
-            throw authError;
-          }
-        }
-
-        // 2. Simpan profil ke tabel 'pengguna' (HANYA status_akun)
-        const { error: dbError } = await supabase
-          .from('pengguna')
-          .insert([
-            {
-              id: validUserId,
-              nama: formData.nama.trim(),
-              email: formData.email.trim(),
-              level_akses: formData.level_akses,
-              status_akun: 'Aktif'
-            }
-          ]);
-
-        if (dbError) throw dbError;
-
-        if (wasRateLimited) {
-          showToast('Akun berhasil dibuat di pangkalan data! (Email Auth rate-limited).', 'warning');
-        } else {
-          showToast('Pendaftaran akun pengguna baru berhasil!', 'success');
-        }
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message);
+        showToast('Data akun berhasil diperbarui!', 'success');
+      } else {
+        const res = await fetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message);
+        showToast('Akun pengguna berhasil dibuat di Clerk & Database!', 'success');
       }
 
-      fetchUsersFromSupabase();
+      fetchUsers();
       setIsModalOpen(false);
     } catch (err: any) {
-      showToast(`Gagal memproses otorisasi akun: ${err.message}`, 'error');
+      showToast(err.message || 'Gagal menyimpan akun pengguna.', 'error');
     }
   };
 
-  const triggerDeleteUser = (user: PenggunaItem) => {
+  const handleDeleteUser = (user: PenggunaItem) => {
     setConfirmDialog({
       isOpen: true,
-      message: `Apakah Anda yakin ingin mencabut dan menghapus otorisasi akun milik "${user.nama}" (${user.email}) secara permanen?`,
+      message: `Hapus akun "${user.nama}" (${user.email}) secara permanen?`,
       onConfirm: async () => {
         try {
-          const { error } = await supabase
-            .from('pengguna')
-            .delete()
-            .eq('id', user.id);
+          const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
+          const result = await res.json();
+          if (!res.ok || !result.success) throw new Error(result.message);
 
-          if (error) throw error;
-          fetchUsersFromSupabase();
-          showToast('Otorisasi akun berhasil dicabut secara permanen.', 'success');
+          fetchUsers();
+          showToast('Akun pengguna berhasil dihapus.', 'success');
         } catch (err: any) {
-          showToast(`Gagal mencabut otorisasi: ${err.message}`, 'error');
+          showToast(err.message || 'Gagal menghapus akun.', 'error');
         } finally {
-          setConfirmDialog((prev: any) => ({ ...prev, isOpen: false }));
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
-      }
+      },
     });
   };
 
-  const filteredUsers = userList.filter((u) => {
-    const keyword = search.toLowerCase();
-    return (
-      u.nama?.toLowerCase().includes(keyword) ||
-      u.email?.toLowerCase().includes(keyword) ||
-      u.level_akses?.toLowerCase().includes(keyword)
-    );
+  const filteredUsers = usersList.filter((u) => {
+    const matchSearch =
+      u.nama.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase());
+    const matchRole = filterRole === 'Semua' || u.level_akses === filterRole;
+    return matchSearch && matchRole;
   });
 
   return (
-    <div className="pb-28 font-sans">
-      {/* HEADER UTAMA */}
-      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-4">
+    <div className="space-y-6 font-sans pb-20">
+      {/* HEADER */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200/80 pb-4">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Manajemen Hak Akses Akun</h1>
-          <p className="text-xs text-slate-400 font-medium mt-0.5">Otorisasi pendaftaran email, berikan status khusus Guru/Admin, atau cabut hak akses akun yang disalahgunakan.</p>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Manajemen Hak Akses & Akun</h1>
+          <p className="text-xs text-slate-500 font-semibold mt-0.5">Kelola kredensial guru, staf admin, dan akun portal wali murid.</p>
         </div>
-        {/* Tombol Akses Utama Desktop Mode */}
-        <button 
-          onClick={handleOpenAdd} 
-          className="hidden md:flex bg-[#02677f] hover:bg-[#005468] text-white px-4 py-2 rounded-xl font-bold text-xs shadow-xs transition-all items-center gap-1.5"
+        <button
+          onClick={() => handleOpenModal()}
+          className="bg-[#02677f] hover:bg-[#005468] text-white px-4 py-2.5 rounded-2xl font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
         >
-          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <path d="M12 5V19M5 12H19" strokeLinecap="round" strokeLinejoin="round"/>
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          Tambah Akun Baru
+          Tambah Akun Pengguna
         </button>
-      </header>
-
-      {/* SLEEK PRECISE TOP SEARCH BAR */}
-      <div className="relative max-w-md w-full mt-4">
-        <input 
-          type="text" 
-          placeholder="Cari nama atau email akun..." 
-          value={search} 
-          onChange={(e) => setSearch(e.target.value)} 
-          className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 focus:border-[#02677f] rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none transition-all shadow-3xs" 
-        />
-        <svg className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-        </svg>
       </div>
 
-      {loadingData ? (
-        <div className="p-12 text-center text-xs font-bold text-slate-400 animate-pulse">Menghubungkan ke server pangkalan akun Supabase...</div>
-      ) : (
-        <>
-          {/* VIEW MOBILE LAYAR HP */}
-          <div className="grid grid-cols-1 gap-4 md:hidden mt-5">
-            {filteredUsers.map((u) => (
-              <div key={u.id} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-3xs animate-fadeIn">
-                <div className="flex justify-between items-start">
-                  <div className="truncate pr-2">
-                    <h4 className="font-extrabold text-slate-900 text-sm leading-tight truncate">{u.nama}</h4>
-                    <span className="text-[11px] font-mono text-slate-400 block mt-0.5 truncate">{u.email}</span>
-                  </div>
-                  <span className="px-2.5 py-1 rounded-md text-[9px] font-extrabold tracking-wide bg-sky-50 text-[#02677f] border border-sky-100 uppercase shrink-0">
-                    {u.level_akses}
-                  </span>
-                </div>
+      {/* CONTROLS */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            placeholder="Cari akun berdasarkan nama atau email login..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#02677f] transition-all shadow-3xs"
+          />
+          <svg className="w-4 h-4 text-slate-400 absolute left-3 top-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+          </svg>
+        </div>
 
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2">
-                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100">
-                    Status: {u.status_akun || 'Aktif'}
-                  </span>
-                  
-                  <div className="flex items-center gap-1">
-                    <button 
-                      onClick={() => handleOpenEdit(u)} 
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-[#02677f] hover:bg-sky-50 transition-colors inline-flex items-center gap-1 text-xs font-bold"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                      <span>Edit</span>
-                    </button>
-                    <button 
-                      onClick={() => triggerDeleteUser(u)} 
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors inline-flex items-center gap-1 text-xs font-bold"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                      <span>Cabut</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+        <div className="flex gap-2">
+          {['Semua', 'GURU & ADMIN', 'WALI MURID'].map((role) => (
+            <button
+              key={role}
+              onClick={() => setFilterRole(role)}
+              className={`px-4 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all ${
+                filterRole === role
+                  ? 'bg-[#02677f] text-white shadow-xs'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {role}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* TABEL PENGGUNA */}
+      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-3xs overflow-hidden">
+        {loading ? (
+          <div className="p-16 text-center text-xs font-bold text-slate-400 animate-pulse">
+            Memuat daftar akun pengguna dari database Neon...
           </div>
-
-          {/* VIEW DESKTOP MODE */}
-          <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden mt-4">
-            <table className="w-full text-left border-collapse text-xs">
+        ) : filteredUsers.length === 0 ? (
+          <div className="p-16 text-center text-xs font-bold text-slate-400">
+            Belum ada akun pengguna yang sesuai dengan pencarian.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="p-4 pl-6">Nama & Identitas Akun</th>
-                  <th className="p-4">Alamat Email</th>
-                  <th className="p-4">Level Otoritas</th>
-                  <th className="p-4 text-right pr-6">Aksi & Otoritas</th>
+                <tr className="bg-slate-50/80 border-b border-slate-100 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                  <th className="py-3.5 px-5">Nama Pengguna</th>
+                  <th className="py-3.5 px-5">Email Terdaftar</th>
+                  <th className="py-3.5 px-5">Peran / Hak Akses</th>
+                  <th className="py-3.5 px-5">Anak Didik Terhubung</th>
+                  <th className="py-3.5 px-5 text-right">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
+              <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700">
                 {filteredUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="p-4 pl-6">
-                      <div className="font-bold text-slate-900 text-sm">{u.nama}</div>
+                  <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-4 px-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-slate-100 text-[#02677f] flex items-center justify-center font-extrabold text-xs shrink-0 border border-slate-200">
+                          {u.avatar_url ? (
+                            <img src={u.avatar_url} alt={u.nama} className="w-full h-full object-cover rounded-xl" />
+                          ) : (
+                            u.nama.charAt(0).toUpperCase()
+                          )}
+                        </div>
+                        <span className="text-slate-900 font-extrabold">{u.nama}</span>
+                      </div>
                     </td>
-                    <td className="p-4 font-mono font-semibold text-slate-600">{u.email}</td>
-                    <td className="p-4">
-                      <span className="px-2.5 py-1 rounded-md text-[10px] font-extrabold tracking-wide bg-sky-50 text-[#02677f] border border-sky-100 uppercase">
+                    <td className="py-4 px-5 font-mono text-slate-600">{u.email}</td>
+                    <td className="py-4 px-5">
+                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold uppercase ${
+                        u.level_akses === 'GURU & ADMIN'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                          : 'bg-sky-50 text-[#02677f] border border-sky-100'
+                      }`}>
                         {u.level_akses}
                       </span>
                     </td>
-                    <td className="p-4 text-right pr-6 space-x-2">
-                      <button 
-                        onClick={() => handleOpenEdit(u)} 
-                        className="border border-slate-200 hover:border-[#02677f] hover:bg-sky-50 text-slate-700 font-bold px-3 py-1.5 rounded-xl text-[11px] inline-flex items-center gap-1.5 bg-white shadow-3xs transition-all"
+                    <td className="py-4 px-5 text-slate-500">{u.nama_anak || '-'}</td>
+                    <td className="py-4 px-5 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => handleOpenModal(u)}
+                        className="p-1.5 text-slate-400 hover:text-[#02677f] rounded-xl hover:bg-sky-50 transition-colors mr-1"
+                        title="Edit"
                       >
-                        <svg className="w-3.5 h-3.5 text-[#02677f]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
                         </svg>
-                        Edit Akses
                       </button>
-                      <button 
-                        onClick={() => triggerDeleteUser(u)} 
-                        className="text-slate-400 hover:text-rose-600 p-1.5 rounded-xl hover:bg-rose-50 transition-colors"
+                      <button
+                        onClick={() => handleDeleteUser(u)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition-colors"
+                        title="Hapus"
                       >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                          <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round"/>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
                       </button>
                     </td>
@@ -356,169 +279,96 @@ export default function AdminUsersManagementPage() {
               </tbody>
             </table>
           </div>
-
-          {filteredUsers.length === 0 && (
-            <div className="bg-white p-8 border border-slate-200 rounded-2xl text-center font-bold text-slate-300 text-xs mt-4">
-              Data pengguna tidak ditemukan atau pangkalan otorisasi kosong.
-            </div>
-          )}
-        </>
-      )}
-
-      {/* FLOATING THUMB-ACTION BUTTON FOR MOBILE */}
-      <div className="fixed bottom-[92px] right-4 left-4 md:hidden z-40">
-        <button 
-          onClick={handleOpenAdd} 
-          className="w-full bg-[#02677f] hover:bg-[#005468] text-white py-3 rounded-2xl font-bold text-xs shadow-lg flex items-center justify-center gap-1.5 transition-all active:scale-98"
-        >
-          <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-            <path d="M12 5V19M5 12H19" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Tambah Akun Baru
-        </button>
+        )}
       </div>
 
-      {/* MODAL DIALOG REGISTRASI / EDIT OTORITAS AKUN */}
+      {/* MODAL FORM BUAT / EDIT AKUN */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-xl space-y-4 animate-fadeIn">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">
-                {editingUser ? 'Modifikasi Otoritas Akun' : 'Registrasi Akun Baru'}
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                {selectedUser ? 'Edit Akun Pengguna' : 'Buat Akun Pengguna Baru'}
               </h3>
-              <button 
-                onClick={() => { setIsModalOpen(false); setIsRoleDropdownOpen(false); }} 
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round"/>
-                </svg>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
 
-            <form onSubmit={handleSaveUser} className="space-y-4" noValidate>
-              {/* INPUT NAMA LENGKAP */}
+            <form onSubmit={handleSaveUser} className="space-y-3.5">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Nama Lengkap Pengguna</label>
-                <input 
-                  type="text" 
-                  placeholder="Masukkan nama lengkap..." 
-                  value={formData.nama} 
-                  onChange={(e) => {
-                    setFormData({ ...formData, nama: e.target.value });
-                    if (errors.nama) setErrors((prev) => { const { nama, ...r } = prev; return r; });
-                  }} 
-                  className={`w-full p-3 border rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none transition-all ${
-                    errors.nama ? 'border-rose-500 bg-rose-50/10' : 'border-slate-200 bg-slate-50/50 focus:bg-white focus:border-[#02677f]'
-                  }`} 
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Nama Lengkap</label>
+                <input
+                  type="text"
+                  placeholder="Ketik nama lengkap..."
+                  value={formData.nama}
+                  onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
                 />
-                {errors.nama && (
-                  <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1 mt-1 animate-fadeIn">
-                    <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                    {errors.nama}
-                  </p>
-                )}
               </div>
 
-              {/* INPUT ALAMAT EMAIL */}
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Alamat Email Resmi</label>
-                <input 
-                  type="email" 
-                  placeholder="contoh@domain.com" 
-                  value={formData.email} 
-                  onChange={(e) => {
-                    setFormData({ ...formData, email: e.target.value });
-                    if (errors.email) setErrors((prev) => { const { email, ...r } = prev; return r; });
-                  }} 
-                  className={`w-full p-3 border rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none transition-all ${
-                    errors.email ? 'border-rose-500 bg-rose-50/10' : 'border-slate-200 bg-slate-50/50 focus:bg-white focus:border-[#02677f]'
-                  }`} 
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Alamat Email</label>
+                <input
+                  type="email"
+                  placeholder="contoh@cahayahati.sch.id"
+                  value={formData.email}
+                  disabled={!!selectedUser}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 />
-                {errors.email && (
-                  <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1 mt-1 animate-fadeIn">
-                    <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                    {errors.email}
-                  </p>
-                )}
               </div>
 
-              {/* CUSTOM DROPDOWN ENGINE */}
-              <div className="space-y-1 relative">
-                <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Level Otoritas Akun</label>
+              {/* KOLOM PASSWORD / KATA SANDI */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase flex justify-between items-center">
+                  <span>Kata Sandi (Password)</span>
+                  {selectedUser && <span className="text-slate-400 text-[9px] font-normal">Kosongkan jika tidak diubah</span>}
+                </label>
                 <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder={selectedUser ? 'Ketik untuk ganti kata sandi...' : 'Minimal 8 karakter...'}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full p-3 pr-10 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
+                  />
                   <button
                     type="button"
-                    onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
-                    className="w-full p-3 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 bg-slate-50/50 outline-none text-left flex justify-between items-center transition-all focus:bg-white focus:border-[#02677f]"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
                   >
-                    <span>{formData.level_akses}</span>
-                    <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isRoleDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
+                    {showPassword ? (
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    )}
                   </button>
-
-                  {isRoleDropdownOpen && (
-                    <div className="absolute left-0 right-0 top-[46px] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden divide-y divide-slate-100 animate-fadeIn max-w-full">
-                      {roleOptions.map((role) => (
-                        <div
-                          key={role}
-                          onClick={() => {
-                            setFormData({ ...formData, level_akses: role });
-                            setIsRoleDropdownOpen(false);
-                          }}
-                          className="p-3 text-xs font-bold text-slate-900 hover:bg-sky-50 cursor-pointer flex justify-between items-center transition-colors"
-                        >
-                          <span>{role}</span>
-                          {formData.level_akses === role && (
-                            <svg className="w-3.5 h-3.5 text-[#02677f]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* INPUT PASSWORD */}
-              {!editingUser && (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Kata Sandi Awal</label>
-                  <input 
-                    type="password" 
-                    placeholder="Masukkan kata sandi..." 
-                    value={formData.password} 
-                    onChange={(e) => {
-                      setFormData({ ...formData, password: e.target.value });
-                      if (errors.password) setErrors((prev) => { const { password, ...r } = prev; return r; });
-                    }} 
-                    className={`w-full p-3 border rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none transition-all ${
-                      errors.password ? 'border-rose-500 bg-rose-50/10' : 'border-slate-200 bg-slate-50/50 focus:bg-white focus:border-[#02677f]'
-                    }`} 
-                  />
-                  {errors.password && (
-                    <p className="text-[10px] text-rose-600 font-bold flex items-center gap-1 mt-1 animate-fadeIn">
-                      <svg className="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                      {errors.password}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
-                <button 
-                  type="button" 
-                  onClick={() => { setIsModalOpen(false); setIsRoleDropdownOpen(false); }} 
-                  className="border border-slate-200 text-slate-600 font-bold px-4 py-2 rounded-xl text-xs hover:bg-slate-50 transition-colors"
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Peran / Level Akses</label>
+                <select
+                  value={formData.level_akses}
+                  onChange={(e) => setFormData({ ...formData, level_akses: e.target.value })}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
                 >
+                  <option value="GURU & ADMIN">GURU & ADMIN</option>
+                  <option value="WALI MURID">WALI MURID</option>
+                </select>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50">
                   Batal
                 </button>
-                <button 
-                  type="submit" 
-                  className="bg-[#02677f] hover:bg-[#005468] text-white font-bold px-4 py-2 rounded-xl text-xs shadow-xs transition-colors"
-                >
+                <button type="submit" className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs">
                   Simpan Akun
                 </button>
               </div>
@@ -527,22 +377,7 @@ export default function AdminUsersManagementPage() {
         </div>
       )}
 
-      {/* TOAST NOTIFIKASI */}
-      {toast.isOpen && (
-        <div className="fixed top-5 right-5 z-50 animate-fadeIn pointer-events-none">
-          <div className={`px-4 py-3 rounded-2xl shadow-lg border text-xs font-bold flex items-center gap-2.5 bg-white ${
-            toast.type === 'success' ? 'border-emerald-100 text-emerald-700' :
-            toast.type === 'warning' ? 'border-amber-100 text-amber-700' : 'border-rose-100 text-rose-600'
-          }`}>
-            {toast.type === 'success' && <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-            {toast.type === 'error' && <svg className="w-4 h-4 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-            {toast.type === 'warning' && <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>}
-            {toast.message}
-          </div>
-        </div>
-      )}
-
-      {/* CONFIRM DIALOG PENCABUTAN AKUN */}
+      {/* CONFIRM DIALOG */}
       {confirmDialog.isOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-sm w-full shadow-2xl space-y-4 text-center animate-fadeIn">
@@ -552,25 +387,37 @@ export default function AdminUsersManagementPage() {
               </svg>
             </div>
             <div className="space-y-1">
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Konfirmasi Pencabutan Akun</h3>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Konfirmasi Hapus Akun</h3>
               <p className="text-slate-500 text-xs leading-relaxed font-semibold">{confirmDialog.message}</p>
             </div>
             <div className="pt-2 flex gap-2">
-              <button 
-                type="button" 
-                onClick={() => setConfirmDialog((prev: any) => ({ ...prev, isOpen: false }))} 
+              <button
+                type="button"
+                onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: () => {} })}
                 className="flex-1 border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl text-xs hover:bg-slate-50 transition-colors"
               >
                 Batal
               </button>
-              <button 
-                type="button" 
-                onClick={confirmDialog.onConfirm} 
+              <button
+                type="button"
+                onClick={confirmDialog.onConfirm}
                 className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-xs transition-colors"
               >
-                Cabut Akun
+                Hapus
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST */}
+      {toast.isOpen && (
+        <div className="fixed top-5 right-5 z-50 animate-fadeIn pointer-events-none">
+          <div className={`px-4 py-3 rounded-2xl shadow-lg border text-xs font-bold flex items-center gap-2.5 bg-white ${
+            toast.type === 'success' ? 'border-emerald-100 text-emerald-700' :
+            toast.type === 'warning' ? 'border-amber-100 text-amber-700' : 'border-rose-100 text-rose-600'
+          }`}>
+            {toast.message}
           </div>
         </div>
       )}

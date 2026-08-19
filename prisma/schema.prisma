@@ -1,0 +1,81 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  GURU_ADMIN
+  WALI_MURID
+}
+
+model Pengguna {
+  id         String   @id @default(cuid())
+  clerkId    String?  @unique @map("clerk_id")
+  nama       String
+  email      String   @unique
+  levelAkses String   @default("WALI MURID") @map("level_akses")
+  avatarUrl  String?  @map("avatar_url")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  siswa Siswa[] @relation("WaliToSiswa")
+
+  @@map("pengguna")
+}
+
+model Siswa {
+  id            String   @id @default(cuid())
+  nis           String   @unique
+  nama          String
+  kelas         String
+  status        String   @default("Aktif")
+  jurnalHariIni String?  @map("jurnal_hari_ini")
+  fotoJurnal    String?  @map("foto_jurnal")
+  fotoName      String?  @map("foto_name")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  waliId String?   @map("wali_id")
+  wali   Pengguna? @relation("WaliToSiswa", fields: [waliId], references: [id], onDelete: SetNull)
+
+  rapor Rapor[]
+
+  @@map("siswa")
+}
+
+model Rapor {
+  id              String  @id @default(cuid())
+  nis             String
+  namaSiswa       String  @map("nama_siswa")
+  kelas           String
+  status          String  @default("Draft")
+  softSkillsScore Float   @default(0) @map("soft_skills_score")
+  softSkillsDesc  String? @map("soft_skills_desc")
+  academicScore   Float   @default(0) @map("academic_score")
+  academicDesc    String? @map("academic_desc")
+  hadir           Int     @default(0)
+  izin            Int     @default(0)
+  alfa            Int     @default(0)
+  catatanGuru     String? @map("catatan_guru")
+  pdfUrl          String? @map("pdf_url")
+  pdfName         String? @map("pdf_name")
+
+  siswaId   String?  @map("siswa_id")
+  siswa     Siswa?   @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("rapor")
+}
+
+model Aktivitas {
+  id        String   @id @default(cuid())
+  judul     String
+  kategori  String
+  tanggal   DateTime
+  deskripsi String
+  gambarUrl String?  @map("gambar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("aktivitas")
+}

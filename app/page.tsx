@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
+import { useUser, UserButton } from '@clerk/nextjs';
 
 interface AktivitasItem {
   id: string;
@@ -13,7 +13,6 @@ interface AktivitasItem {
   deskripsi: string;
 }
 
-// COMPONENT WRAPPER UNTUK ANIMASI MUNCUL/HILANG SAAT SCROLL (SCROLL-DRIVEN ANIMATION)
 function AnimatedSection({ children, className = '', delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
   const [isVisible, setIsVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -21,7 +20,6 @@ function AnimatedSection({ children, className = '', delay = 0 }: { children: Re
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        // Mengatur status visible saat masuk/keluar dari viewport (Animasi Muncul & Hilang)
         setIsVisible(entry.isIntersecting);
       },
       { threshold: 0.15 }
@@ -47,23 +45,20 @@ function AnimatedSection({ children, className = '', delay = 0 }: { children: Re
 }
 
 export default function LandingPage() {
+  const { isSignedIn, isLoaded } = useUser();
+
   const [aktivitasList, setAktivitasList] = useState<AktivitasItem[]>([]);
   const [kalenderList, setKalenderList] = useState<AktivitasItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Active Tab for Mobile Bottom Navigation
   const [activeNavTab, setActiveNavTab] = useState<'home' | 'kalender' | 'aktivitas' | 'rapor'>('home');
-
-  // State Modal Detail Reading Aktivitas
   const [selectedAktivitas, setSelectedAktivitas] = useState<AktivitasItem | null>(null);
 
-  // State Quick Rapor Status Lookup
   const [searchNis, setSearchNis] = useState('');
   const [searchResult, setSearchResult] = useState<{ found: boolean; message: string } | null>(null);
   const [isSearchingRapor, setIsSearchingRapor] = useState(false);
 
-  // ================= STATE ENGINE KALENDER VISUAL =================
-  const [calendarViewDate, setCalendarViewDate] = useState<Date>(new Date(2026, 6, 1)); // Default Juli 2026
+  const [calendarViewDate, setCalendarViewDate] = useState<Date>(new Date(2026, 7, 1));
   const [selectedDateStr, setSelectedDateStr] = useState<string>('');
 
   const namaBulanIndo = [
@@ -73,14 +68,23 @@ export default function LandingPage() {
 
   const namaHariIndo = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 
-  // Pengaturan Smooth Scroll Behavior & Scroll-Spy secara Global
+  const formatTanggalIndo = (dateStr: string) => {
+    if (!dateStr) return '-';
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
+      return `${date.getDate()} ${namaBulanIndo[date.getMonth()]} ${date.getFullYear()}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
   useEffect(() => {
     document.documentElement.style.scrollBehavior = 'smooth';
 
-    // Scroll-Spy untuk otomatis mengubah tab aktif bottom bar berdasarkan section layar
     const handleScroll = () => {
       const sections = ['hero', 'kalender', 'aktivitas', 'rapor'];
-      const scrollPosition = window.scrollY + 200;
+      const scrollPosition = window.scrollY + 220;
 
       for (const sectionId of sections) {
         const el = document.getElementById(sectionId);
@@ -99,38 +103,38 @@ export default function LandingPage() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Fetch Live Data dari Supabase
+  const scrollToSection = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+    e.preventDefault();
+    const target = document.getElementById(id);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth' });
+      setActiveNavTab(id === 'hero' ? 'home' : (id as any));
+    }
+  };
+
   const fetchLandingData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Aktivitas Terbaru untuk Berita/Galeri
-      const { data: dataAktivitas } = await supabase
-        .from('aktivitas')
-        .select('*')
-        .order('tanggal', { ascending: false })
-        .limit(6);
+      const res = await fetch('/api/aktivitas');
+      const result = await res.json();
+      
+      const data: AktivitasItem[] = result.success ? result.data : (Array.isArray(result) ? result : []);
 
-      if (dataAktivitas) setAktivitasList(dataAktivitas);
+      if (data && data.length > 0) {
+        setAktivitasList(data.slice(0, 6));
+        setKalenderList(data);
 
-      // 2. Fetch Seluruh Agenda Kalender
-      const { data: dataAgenda } = await supabase
-        .from('aktivitas')
-        .select('*')
-        .order('tanggal', { ascending: true });
-
-      if (dataAgenda) {
-        setKalenderList(dataAgenda);
-        if (dataAgenda.length > 0 && dataAgenda[0].tanggal) {
-          setSelectedDateStr(dataAgenda[0].tanggal);
-          const firstDate = new Date(dataAgenda[0].tanggal);
+        if (data[0].tanggal) {
+          const rawDate = data[0].tanggal.split('T')[0];
+          setSelectedDateStr(rawDate);
+          const firstDate = new Date(data[0].tanggal);
           if (!isNaN(firstDate.getTime())) {
             setCalendarViewDate(new Date(firstDate.getFullYear(), firstDate.getMonth(), 1));
           }
         }
       }
-
     } catch (err: any) {
-      console.error('Gagal memuat data landing page:', err.message);
+      console.error('Gagal memuat data landing page:', err);
     } finally {
       setLoading(false);
     }
@@ -140,7 +144,6 @@ export default function LandingPage() {
     fetchLandingData();
   }, []);
 
-  // Handler Cek Quick Status Rapor Digital
   const handleCheckRapor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchNis.trim()) return;
@@ -149,34 +152,30 @@ export default function LandingPage() {
     setSearchResult(null);
 
     try {
-      const { data } = await supabase
-        .from('rapor')
-        .select('status, nama_siswa')
-        .eq('nis', searchNis.trim())
-        .single();
+      const res = await fetch(`/api/rapor/check?nis=${encodeURIComponent(searchNis.trim())}`);
+      const resData = await res.json();
 
-      if (data) {
+      if (res.ok && resData.success) {
         setSearchResult({
           found: true,
-          message: `Rapor Ananda ${data.nama_siswa} (${data.status === 'Published' ? 'Sudah Terbit' : 'Dalam Proses Guru'})`
+          message: `Rapor Ananda ${resData.data.nama_siswa} (${resData.data.status === 'Published' ? 'Sudah Terbit' : 'Dalam Proses Guru'})`
         });
       } else {
         setSearchResult({
           found: false,
-          message: 'Nomor NIS tidak ditemukan dalam pangkalan rapor.'
+          message: resData.message || 'Nomor NIS tidak ditemukan dalam pangkalan rapor.'
         });
       }
     } catch {
       setSearchResult({
         found: false,
-        message: 'Nomor NIS tidak terdaftar atau belum diterbitkan.'
+        message: 'Gagal terhubung ke server pangkalan rapor.'
       });
     } finally {
       setIsSearchingRapor(false);
     }
   };
 
-  // Navigasi Bulan Kalender
   const handlePrevMonth = () => {
     setCalendarViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
   };
@@ -185,7 +184,6 @@ export default function LandingPage() {
     setCalendarViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   };
 
-  // Kalkulasi Grid Tanggal Bulanan
   const currentYear = calendarViewDate.getFullYear();
   const currentMonth = calendarViewDate.getMonth();
 
@@ -206,19 +204,22 @@ export default function LandingPage() {
     return `${currentYear}-${m}-${d}`;
   };
 
-  // Filter agenda untuk tanggal yang sedang dipilih
-  const eventsForSelectedDate = kalenderList.filter(item => item.tanggal === selectedDateStr);
+  const eventsForSelectedDate = kalenderList.filter(item => {
+    if (!item.tanggal) return false;
+    const itemDate = item.tanggal.split('T')[0];
+    return itemDate === selectedDateStr;
+  });
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans selection:bg-[#02677f] selection:text-white antialiased overflow-x-hidden pt-16 lg:pt-20 pb-24 lg:pb-0 scroll-smooth">
       
-      {/* 1. TOP NAVBAR HEADER (ALWAYS STICKY ON TOP - FIXED POSITIONING) */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/85 backdrop-blur-xl border-b border-slate-200/60 px-4 lg:px-12 py-3 transition-all shadow-3xs">
+      {/* 1. TOP NAVBAR */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/85 backdrop-blur-xl border-b border-slate-200/60 px-3 sm:px-4 lg:px-12 py-3 transition-all shadow-3xs">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           
-          {/* LOGO KEMENDIKBUD + TK CAHAYA HATI */}
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center border border-slate-200/70 shadow-2xs p-1 shrink-0 group-hover:scale-105 transition-transform">
+          {/* SISI KIRI: BRAND LOGO */}
+          <Link href="/" className="flex items-center gap-2.5 sm:gap-3 group">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-white flex items-center justify-center border border-slate-200/70 shadow-2xs p-1 shrink-0 group-hover:scale-105 transition-transform">
               <img 
                 src="https://upload.wikimedia.org/wikipedia/commons/9/9c/Logo_of_Ministry_of_Education_and_Culture_of_Republic_of_Indonesia.svg" 
                 alt="Logo Kemendikbud" 
@@ -227,42 +228,111 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <h1 className="font-extrabold text-slate-900 text-base md:text-lg tracking-tight leading-none group-hover:text-[#02677f] transition-colors">
+              <h1 className="font-extrabold text-slate-900 text-sm sm:text-base md:text-lg tracking-tight leading-none group-hover:text-[#02677f] transition-colors">
                 TK CAHAYA HATI
               </h1>
-              <span className="text-[10px] font-mono font-extrabold text-[#02677f] uppercase tracking-wider block mt-0.5">
+              <span className="text-[9px] sm:text-[10px] font-mono font-extrabold text-[#02677f] uppercase tracking-wider block mt-0.5">
                 Bermain & Belajar Ceria
               </span>
             </div>
           </Link>
 
-          {/* DESKTOP NAV LINKS */}
-          <nav className="hidden lg:flex items-center gap-1 bg-slate-100/70 p-1 rounded-full border border-slate-200/60 text-xs font-bold text-slate-600">
-            <a href="#hero" className="px-4 py-1.5 rounded-full hover:bg-white hover:text-slate-900 hover:shadow-2xs transition-all">Home</a>
-            <a href="#kalender" className="px-4 py-1.5 rounded-full hover:bg-white hover:text-slate-900 hover:shadow-2xs transition-all">Kalender</a>
-            <a href="#aktivitas" className="px-4 py-1.5 rounded-full hover:bg-white hover:text-slate-900 hover:shadow-2xs transition-all">Aktivitas</a>
-            <a href="#rapor" className="px-4 py-1.5 rounded-full hover:bg-white hover:text-slate-900 hover:shadow-2xs transition-all">Cek Rapor</a>
-            <a href="#keunggulan" className="px-4 py-1.5 rounded-full hover:bg-white hover:text-slate-900 hover:shadow-2xs transition-all">Keunggulan</a>
+          {/* SISI TENGAH: DESKTOP MENU */}
+          <nav className="hidden lg:flex items-center gap-1 bg-slate-100/80 p-1 rounded-2xl border border-slate-200/60 text-xs font-bold text-slate-600">
+            <a 
+              href="#hero" 
+              onClick={(e) => scrollToSection(e, 'hero')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                activeNavTab === 'home'
+                  ? 'bg-white text-[#02677f] shadow-2xs font-extrabold'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+              </svg>
+              <span>Home</span>
+            </a>
+
+            <a 
+              href="#kalender" 
+              onClick={(e) => scrollToSection(e, 'kalender')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                activeNavTab === 'kalender'
+                  ? 'bg-white text-[#02677f] shadow-2xs font-extrabold'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+              </svg>
+              <span>Kalender</span>
+            </a>
+
+            <a 
+              href="#aktivitas" 
+              onClick={(e) => scrollToSection(e, 'aktivitas')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                activeNavTab === 'aktivitas'
+                  ? 'bg-white text-[#02677f] shadow-2xs font-extrabold'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6h1.5m-1.5 3h1.5m-1.5 3h1.5M6.75 21h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v12a2.25 2.25 0 0 0 2.25 2.25Z" />
+              </svg>
+              <span>Aktivitas</span>
+            </a>
+
+            <a 
+              href="#rapor" 
+              onClick={(e) => scrollToSection(e, 'rapor')}
+              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                activeNavTab === 'rapor'
+                  ? 'bg-white text-[#02677f] shadow-2xs font-extrabold'
+                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+              </svg>
+              <span>Cek Rapor</span>
+            </a>
           </nav>
 
-          {/* ALWAYS VISIBLE LOGIN BUTTON (POJOK KANAN ATAS) */}
-          <div className="flex items-center">
-            <Link 
-              href="/login" 
-              className="bg-[#02677f] hover:bg-[#005468] text-white px-5 py-2 rounded-full text-xs font-extrabold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 active:scale-95"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
-              </svg>
-              <span>Login</span>
-            </Link>
+          {/* SISI KANAN: AUTH STATUS (MUNCUL DI MOBILE & DESKTOP) */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {isLoaded && isSignedIn ? (
+              <>
+                <Link 
+                  href="/wali/dashboard" 
+                  className="bg-sky-50 text-[#02677f] hover:bg-sky-100 border border-sky-200 px-3 sm:px-4 py-1.5 rounded-full text-[11px] sm:text-xs font-extrabold transition-all inline-flex items-center gap-1 sm:gap-1.5 shadow-3xs active:scale-95"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                  </svg>
+                  <span>Dashboard</span>
+                </Link>
+                <UserButton />
+              </>
+            ) : (
+              <Link 
+                href="/sign-in" 
+                className="bg-[#02677f] hover:bg-[#005468] text-white px-4 sm:px-5 py-2 rounded-full text-xs font-extrabold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 active:scale-95"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                </svg>
+                <span>Login</span>
+              </Link>
+            )}
           </div>
 
         </div>
       </header>
 
-      {/* 2. HERO SECTION WITH SCROLL ANIMATION */}
-      <section id="hero" className="max-w-7xl mx-auto px-4 lg:px-12 py-8 md:py-16 relative">
+      {/* 2. HERO SECTION */}
+      <section id="hero" className="max-w-7xl mx-auto px-4 lg:px-12 py-8 md:py-16 relative scroll-mt-24">
         <AnimatedSection>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             
@@ -283,12 +353,14 @@ export default function LandingPage() {
               <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 pt-2">
                 <a 
                   href="#rapor" 
+                  onClick={(e) => scrollToSection(e, 'rapor')}
                   className="w-full sm:w-auto bg-[#02677f] hover:bg-[#005468] text-white px-7 py-3.5 rounded-full text-xs font-extrabold shadow-md hover:shadow-lg transition-all text-center hover:-translate-y-0.5 active:scale-98"
                 >
                   Cek Rapor Digital
                 </a>
                 <a 
                   href="#kalender" 
+                  onClick={(e) => scrollToSection(e, 'kalender')}
                   className="w-full sm:w-auto bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-6 py-3.5 rounded-full text-xs font-bold transition-all text-center flex items-center justify-center gap-2 shadow-3xs hover:-translate-y-0.5"
                 >
                   <svg className="w-4 h-4 text-[#02677f]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -304,7 +376,7 @@ export default function LandingPage() {
                 <img 
                   src="https://images.unsplash.com/photo-1587654780291-39c9404d746b?q=80&w=1000&auto=format&fit=crop" 
                   alt="Belajar TK CAHAYA HATI" 
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
                 />
               </div>
 
@@ -325,8 +397,8 @@ export default function LandingPage() {
         </AnimatedSection>
       </section>
 
-      {/* 3. SECTION 1: KALENDER AKADEMIK INTERAKTIF WITH SCROLL ANIMATION */}
-      <section id="kalender" className="bg-slate-100/70 py-16 border-y border-slate-200/60 scroll-mt-12">
+      {/* 3. KALENDER SECTION */}
+      <section id="kalender" className="bg-slate-100/70 py-16 border-y border-slate-200/60 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 lg:px-12 space-y-8">
           
           <AnimatedSection>
@@ -347,7 +419,7 @@ export default function LandingPage() {
           <AnimatedSection delay={150}>
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               
-              {/* VISUAL MONTHLY CALENDAR GRID */}
+              {/* KALENDER GRID */}
               <div className="lg:col-span-7 bg-white rounded-3xl p-6 border border-slate-200/80 shadow-3xs space-y-5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -380,7 +452,6 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* WEEKDAY HEADERS */}
                 <div className="grid grid-cols-7 gap-1 text-center border-b border-slate-100 pb-2">
                   {namaHariIndo.map((hari, idx) => (
                     <span key={hari} className={`text-[11px] font-extrabold uppercase ${idx === 0 ? 'text-rose-500' : 'text-slate-400'}`}>
@@ -389,7 +460,6 @@ export default function LandingPage() {
                   ))}
                 </div>
 
-                {/* TANGGAL GRID CELLS */}
                 <div className="grid grid-cols-7 gap-1.5">
                   {daysGrid.map((day, idx) => {
                     if (day === null) {
@@ -398,7 +468,7 @@ export default function LandingPage() {
 
                     const isoStr = formatISO(day);
                     const isSelected = isoStr === selectedDateStr;
-                    const hasEvents = kalenderList.some(item => item.tanggal === isoStr);
+                    const hasEvents = kalenderList.some(item => item.tanggal && item.tanggal.split('T')[0] === isoStr);
 
                     return (
                       <button
@@ -420,10 +490,9 @@ export default function LandingPage() {
                     );
                   })}
                 </div>
-
               </div>
 
-              {/* DETAIL PANEL AGENDA */}
+              {/* DETAIL AGENDA */}
               <div className="lg:col-span-5 bg-white rounded-3xl p-6 border border-slate-200/80 shadow-3xs space-y-4">
                 <div className="border-b border-slate-100 pb-3 flex justify-between items-center">
                   <div>
@@ -431,7 +500,7 @@ export default function LandingPage() {
                       Agenda Terjadwal
                     </span>
                     <h4 className="text-sm font-extrabold text-slate-900 mt-0.5">
-                      {selectedDateStr ? selectedDateStr : 'Pilih Tanggal di Kalender'}
+                      {selectedDateStr ? formatTanggalIndo(selectedDateStr) : 'Pilih Tanggal di Kalender'}
                     </h4>
                   </div>
                   <span className="text-[10px] font-bold px-2.5 py-1 bg-sky-50 text-[#02677f] rounded-lg border border-sky-100">
@@ -468,8 +537,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 4. SECTION 2: AKTIVITAS TERBARU WITH STAGGERED SCROLL ANIMATIONS */}
-      <section id="aktivitas" className="max-w-7xl mx-auto px-4 lg:px-12 py-16 space-y-8 scroll-mt-12">
+      {/* 4. AKTIVITAS TERBARU */}
+      <section id="aktivitas" className="max-w-7xl mx-auto px-4 lg:px-12 py-16 space-y-8 scroll-mt-20">
         <AnimatedSection>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 border-b border-slate-200/80 pb-4">
             <div>
@@ -479,7 +548,7 @@ export default function LandingPage() {
               </h3>
             </div>
 
-            <Link href="/wali/dashboard" className="text-xs font-extrabold text-[#02677f] hover:underline inline-flex items-center gap-1">
+            <Link href="/aktivitas" className="text-xs font-extrabold text-[#02677f] hover:underline inline-flex items-center gap-1">
               <span>Lihat Semua Berita</span>
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
@@ -490,7 +559,7 @@ export default function LandingPage() {
 
         {loading ? (
           <div className="p-12 text-center text-xs font-bold text-slate-400 animate-pulse">
-            Memuat dokumentasi liputan dari Supabase...
+            Memuat dokumentasi liputan dari database...
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -522,7 +591,7 @@ export default function LandingPage() {
 
                     <div className="p-5 space-y-2">
                       <span className="text-[10px] font-mono font-bold text-slate-400 block">
-                        {item.tanggal}
+                        {formatTanggalIndo(item.tanggal)}
                       </span>
                       <h4 className="font-extrabold text-slate-900 text-sm group-hover:text-[#02677f] transition-colors leading-snug">
                         {item.judul}
@@ -552,8 +621,8 @@ export default function LandingPage() {
         )}
       </section>
 
-      {/* 5. SECTION 3: QUICK CHECK STATUS RAPOR DIGITAL WITH ANIMATION */}
-      <section id="rapor" className="bg-gradient-to-r from-slate-900 via-slate-800 to-[#02677f] py-16 text-white my-8 scroll-mt-12">
+      {/* 5. CEK RAPOR DIGITAL */}
+      <section id="rapor" className="bg-gradient-to-r from-slate-900 via-slate-800 to-[#02677f] py-16 text-white my-8 scroll-mt-20">
         <AnimatedSection>
           <div className="max-w-4xl mx-auto px-4 text-center space-y-6">
             <div className="space-y-2">
@@ -596,8 +665,8 @@ export default function LandingPage() {
         </AnimatedSection>
       </section>
 
-      {/* 6. SECTION 4: MENGAPA MEMILIH KAMI? WITH STAGGERED CARDS */}
-      <section id="keunggulan" className="bg-white py-16 border-b border-slate-200/60 scroll-mt-12">
+      {/* 6. KEUNGGULAN */}
+      <section id="keunggulan" className="bg-white py-16 border-b border-slate-200/60 scroll-mt-20">
         <div className="max-w-7xl mx-auto px-4 lg:px-12 space-y-12">
           
           <AnimatedSection>
@@ -612,7 +681,6 @@ export default function LandingPage() {
           </AnimatedSection>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
             <AnimatedSection delay={100}>
               <div className="bg-slate-50/70 border border-slate-200/80 rounded-3xl p-6 text-center space-y-4 hover:shadow-xl hover:-translate-y-2 transition-all duration-300 group h-full">
                 <div className="w-14 h-14 rounded-2xl bg-sky-100/80 border border-sky-200 text-[#02677f] flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
@@ -660,7 +728,6 @@ export default function LandingPage() {
                 </div>
               </div>
             </AnimatedSection>
-
           </div>
 
         </div>
@@ -670,7 +737,6 @@ export default function LandingPage() {
       <footer className="bg-slate-900 text-white py-12 border-t border-slate-800">
         <AnimatedSection>
           <div className="max-w-7xl mx-auto px-4 lg:px-12 grid grid-cols-1 md:grid-cols-3 gap-8">
-            
             <div className="space-y-3">
               <h4 className="font-extrabold text-white text-base">TK CAHAYA HATI</h4>
               <p className="text-xs text-slate-400 leading-relaxed font-medium">
@@ -693,90 +759,95 @@ export default function LandingPage() {
             <div className="space-y-2">
               <h5 className="font-bold text-xs uppercase tracking-wider text-slate-300">Navigasi Cepat</h5>
               <div className="flex flex-col gap-1 text-xs text-slate-400 font-medium">
-                <a href="#hero" className="hover:text-white transition-colors">Home</a>
-                <a href="#kalender" className="hover:text-white transition-colors">Kalender Akademik</a>
-                <a href="#aktivitas" className="hover:text-white transition-colors">Aktivitas & Liputan</a>
-                <a href="#rapor" className="hover:text-white transition-colors">Cek Status Rapor</a>
+                <a href="#hero" onClick={(e) => scrollToSection(e, 'hero')} className="hover:text-white transition-colors">Home</a>
+                <a href="#kalender" onClick={(e) => scrollToSection(e, 'kalender')} className="hover:text-white transition-colors">Kalender Akademik</a>
+                <Link href="/aktivitas" className="hover:text-white transition-colors">Aktivitas & Liputan</Link>
+                <a href="#rapor" onClick={(e) => scrollToSection(e, 'rapor')} className="hover:text-white transition-colors">Cek Status Rapor</a>
                 <Link href="/wali/dashboard" className="hover:text-white transition-colors">Portal Login</Link>
               </div>
             </div>
-
           </div>
         </AnimatedSection>
       </footer>
 
-      {/* 8. iOS FLOATING BOTTOM TAB BAR (MOBILE ONLY - CLEAN 4 NAVIGATION TABS) */}
-      <div className="fixed bottom-4 left-6 right-6 z-50 bg-white/80 backdrop-blur-xl border border-slate-200/80 shadow-2xl rounded-full lg:hidden p-1.5 transition-all">
+      {/* 8. MOBILE BOTTOM BAR */}
+      <div className="fixed bottom-4 left-4 right-4 z-50 bg-white/90 backdrop-blur-xl border border-slate-200/80 shadow-2xl rounded-full lg:hidden p-1.5 transition-all">
         <div className="flex justify-around items-center">
-          
-          {/* TAB 1: HOME */}
           <a 
             href="#hero" 
-            onClick={() => setActiveNavTab('home')}
-            className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-full transition-all ${
+            onClick={(e) => scrollToSection(e, 'hero')}
+            className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-full transition-all ${
               activeNavTab === 'home' 
                 ? 'bg-[#02677f] text-white shadow-xs scale-105' 
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
             </svg>
             <span className="text-[10px] font-extrabold tracking-tight">Home</span>
           </a>
 
-          {/* TAB 2: KALENDER */}
           <a 
             href="#kalender" 
-            onClick={() => setActiveNavTab('kalender')}
-            className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-full transition-all ${
+            onClick={(e) => scrollToSection(e, 'kalender')}
+            className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-full transition-all ${
               activeNavTab === 'kalender' 
                 ? 'bg-[#02677f] text-white shadow-xs scale-105' 
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
             </svg>
             <span className="text-[10px] font-extrabold tracking-tight">Kalender</span>
           </a>
 
-          {/* TAB 3: AKTIVITAS */}
           <a 
             href="#aktivitas" 
-            onClick={() => setActiveNavTab('aktivitas')}
-            className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-full transition-all ${
+            onClick={(e) => scrollToSection(e, 'aktivitas')}
+            className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-full transition-all ${
               activeNavTab === 'aktivitas' 
                 ? 'bg-[#02677f] text-white shadow-xs scale-105' 
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6h1.5m-1.5 3h1.5m-1.5 3h1.5M6.75 21h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v12a2.25 2.25 0 0 0 2.25 2.25Z" />
             </svg>
             <span className="text-[10px] font-extrabold tracking-tight">Aktivitas</span>
           </a>
 
-          {/* TAB 4: RAPOR */}
           <a 
             href="#rapor" 
-            onClick={() => setActiveNavTab('rapor')}
-            className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-full transition-all ${
+            onClick={(e) => scrollToSection(e, 'rapor')}
+            className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-full transition-all ${
               activeNavTab === 'rapor' 
                 ? 'bg-[#02677f] text-white shadow-xs scale-105' 
                 : 'text-slate-500 hover:text-slate-900'
             }`}
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
             </svg>
             <span className="text-[10px] font-extrabold tracking-tight">Rapor</span>
           </a>
 
+          {isLoaded && isSignedIn && (
+            <Link 
+              href="/wali/dashboard" 
+              className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-full text-[#02677f] hover:bg-sky-50 transition-all"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+              </svg>
+              <span className="text-[10px] font-extrabold tracking-tight">Portal</span>
+            </Link>
+          )}
         </div>
       </div>
 
-      {/* MODAL PREVIEW DETAIL AKTIVITAS */}
+      {/* MODAL PREVIEW AKTIVITAS */}
       {selectedAktivitas && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-lg w-full shadow-2xl space-y-4 animate-fadeIn">
@@ -797,7 +868,7 @@ export default function LandingPage() {
             )}
 
             <div className="space-y-1">
-              <span className="text-[10px] font-mono text-slate-400 font-bold block">{selectedAktivitas.tanggal}</span>
+              <span className="text-[10px] font-mono text-slate-400 font-bold block">{formatTanggalIndo(selectedAktivitas.tanggal)}</span>
               <p className="text-xs text-slate-700 font-semibold leading-relaxed">
                 {selectedAktivitas.deskripsi}
               </p>

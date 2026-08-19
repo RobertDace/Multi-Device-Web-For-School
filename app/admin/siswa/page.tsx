@@ -1,447 +1,523 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 
 interface SiswaItem {
-  id: string; 
-  nisn: string;
-  name: string;
-  class: string;
-  parent: string;
+  id: string;
+  nis: string;
+  nama: string;
+  kelas: string;
   status: string;
-  jurnal_hari_ini: string;
-  foto_jurnal: string;
-  foto_name?: string;
+  nama_wali?: string;
+  jurnal_hari_ini?: string;
+  foto_jurnal?: string;
 }
 
 export default function AdminSiswaPage() {
+  const [siswaList, setSiswaList] = useState<SiswaItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filterKelas, setFilterKelas] = useState('Semua');
+
+  // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isJurnalModalOpen, setIsJurnalModalOpen] = useState(false);
   const [selectedSiswa, setSelectedSiswa] = useState<SiswaItem | null>(null);
 
-  const [siswaList, setSiswaList] = useState<SiswaItem[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
+  // Form State Siswa
+  const [formData, setFormData] = useState({
+    nis: '',
+    nama: '',
+    kelas: 'Kelompok A',
+    status: 'Aktif',
+  });
 
-  // State Form Input Siswa Baru
-  const [newNisn, setNewNisn] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newClass, setNewClass] = useState('Tiger Class (A)');
-  const [newParent, setNewParent] = useState('');
+  // Form State Jurnal Harian
+  const [jurnalData, setJurnalData] = useState({
+    jurnal_hari_ini: '',
+    foto_jurnal: '',
+  });
 
-  // State Kontrol Custom Dropdown Kelas (Anti Native OS Select UI)
-  const [isClassDropdownOpen, setIsClassDropdownOpen] = useState(false);
-  const classOptions = ['Tiger Class (A)', 'Rabbit Class (B)', 'Elephant Class (B)'];
-
-  // State Form Jurnal Harian
-  const [jurnalText, setJurnalText] = useState('');
-  const [jurnalFotoUrl, setJurnalFotoUrl] = useState('');
-  const [jurnalFotoName, setJurnalFotoName] = useState('');
-  const [isUploadingJurnal, setIsUploadingJurnal] = useState(false);
-
-  // State Toast Notifikasi & Confirm Dialog
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [toast, setToast] = useState<{ isOpen: boolean; message: string; type: 'success' | 'error' | 'warning' }>({
-    isOpen: false, message: '', type: 'success'
+    isOpen: false, message: '', type: 'success',
   });
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean; message: string; onConfirm: () => void }>({
-    isOpen: false, message: '', onConfirm: () => {}
+    isOpen: false, message: '', onConfirm: () => {},
   });
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
     setToast({ isOpen: true, message, type });
-    setTimeout(() => setToast(prev => ({ ...prev, isOpen: false })), 3500);
+    setTimeout(() => setToast({ isOpen: false, message: '', type: 'success' }), 3500);
   };
 
-  const fetchSiswaDariSupabase = async () => {
-    setLoadingData(true);
+  const fetchSiswa = async () => {
+    setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('siswa')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      if (data) {
-        const mappedData: SiswaItem[] = data.map((item: any) => ({
-          id: item.id, 
-          nisn: item.nis || '-', 
-          name: item.nama || 'Tanpa Nama', 
-          class: item.kelas || 'Tiger Class (A)', 
-          parent: item.nama_wali || '', 
-          status: item.status || 'Aktif',
-          jurnal_hari_ini: item.jurnal_hari_ini || 'Belum diisi oleh guru.',
-          foto_jurnal: item.foto_jurnal || '',
-          foto_name: item.foto_name || ''
-        }));
-        setSiswaList(mappedData);
+      const res = await fetch('/api/siswa');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setSiswaList(json.data);
       }
-    } catch (err: any) {
-      console.error('Gagal memuat data dari Supabase:', err.message);
+    } catch {
+      showToast('Gagal memuat data siswa.', 'error');
     } finally {
-      setLoadingData(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSiswaDariSupabase();
+    fetchSiswa();
   }, []);
 
-  const handleAddSiswa = async (e: React.FormEvent) => {
+  // Buka Modal Tambah / Edit Siswa
+  const handleOpenModal = (siswa: SiswaItem | null = null) => {
+    setSelectedSiswa(siswa);
+    if (siswa) {
+      setFormData({
+        nis: siswa.nis,
+        nama: siswa.nama,
+        kelas: siswa.kelas,
+        status: siswa.status,
+      });
+    } else {
+      setFormData({
+        nis: '',
+        nama: '',
+        kelas: 'Kelompok A',
+        status: 'Aktif',
+      });
+    }
+    setIsModalOpen(true);
+  };
+
+  // Buka Modal Edit Jurnal
+  const handleOpenJurnalModal = (siswa: SiswaItem) => {
+    setSelectedSiswa(siswa);
+    setJurnalData({
+      jurnal_hari_ini: siswa.jurnal_hari_ini || '',
+      foto_jurnal: siswa.foto_jurnal || '',
+    });
+    setIsJurnalModalOpen(true);
+  };
+
+  // Upload Foto Jurnal Base64
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('Harap pilih berkas gambar yang valid.', 'warning');
+      return;
+    }
+
+    setIsUploadingPhoto(true);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setJurnalData((prev) => ({ ...prev, foto_jurnal: reader.result as string }));
+      setIsUploadingPhoto(false);
+      showToast('Foto jurnal berhasil diunggah!', 'success');
+    };
+    reader.onerror = () => {
+      setIsUploadingPhoto(false);
+      showToast('Gagal memproses gambar.', 'error');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Simpan Data Siswa
+  const handleSaveSiswa = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim() || !newNisn.trim() || !newParent.trim()) return;
+    if (!formData.nis.trim() || !formData.nama.trim()) {
+      showToast('NIS dan Nama Murid wajib diisi!', 'warning');
+      return;
+    }
 
     try {
-      const { error } = await supabase
-        .from('siswa')
-        .insert([
-          {
-            nis: newNisn.trim(),         
-            nama: newName.trim(),        
-            kelas: newClass,             
-            nama_wali: newParent.trim(),  
-            status: 'Aktif'
-          }
-        ]);
+      if (selectedSiswa) {
+        const res = await fetch(`/api/siswa/${selectedSiswa.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message);
+        showToast('Data murid berhasil diperbarui!', 'success');
+      } else {
+        const res = await fetch('/api/siswa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData),
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) throw new Error(result.message);
+        showToast('Murid baru berhasil ditambahkan!', 'success');
+      }
 
-      if (error) throw error;
-
-      fetchSiswaDariSupabase();
+      fetchSiswa();
       setIsModalOpen(false);
-      setNewNisn('');
-      setNewName('');
-      setNewParent('');
-      showToast('Data anak didik baru berhasil disimpan!', 'success');
     } catch (err: any) {
-      showToast(`Gagal menyimpan data: ${err.message}`, 'error');
+      showToast(err.message || 'Gagal menyimpan data murid.', 'error');
     }
   };
 
+  // Simpan Jurnal Harian
   const handleSaveJurnal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSiswa) return;
 
     try {
-      const { error } = await supabase
-        .from('siswa')
-        .update({
-          jurnal_hari_ini: jurnalText,
-          foto_jurnal: jurnalFotoUrl,
-          foto_name: jurnalFotoName
-        })
-        .eq('id', selectedSiswa.id);
+      const res = await fetch(`/api/siswa/${selectedSiswa.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jurnalData),
+      });
+      const result = await res.json();
+      if (!res.ok || !result.success) throw new Error(result.message);
 
-      if (error) throw error;
-
-      fetchSiswaDariSupabase();
+      showToast('Jurnal & observasi harian murid berhasil disimpan!', 'success');
+      fetchSiswa();
       setIsJurnalModalOpen(false);
-      showToast(`Jurnal harian untuk ${selectedSiswa.name} sukses diperbarui!`, 'success');
     } catch (err: any) {
-      showToast(`Gagal mengupdate jurnal: ${err.message}`, 'error');
+      showToast(err.message || 'Gagal memperbarui jurnal.', 'error');
     }
   };
 
-  const triggerDeleteSiswa = (siswa: SiswaItem) => {
+  // Hapus Siswa
+  const handleDeleteSiswa = (siswa: SiswaItem) => {
     setConfirmDialog({
       isOpen: true,
-      message: `Apakah Anda yakin ingin menghapus data siswa "${siswa.name}" secara permanen?`,
+      message: `Hapus murid "${siswa.nama}" (NIS: ${siswa.nis}) secara permanen? Data rapor terkait juga akan terhapus.`,
       onConfirm: async () => {
         try {
-          const { error } = await supabase
-            .from('siswa')
-            .delete()
-            .eq('id', siswa.id);
+          const res = await fetch(`/api/siswa/${siswa.id}`, { method: 'DELETE' });
+          const result = await res.json();
+          if (!res.ok || !result.success) throw new Error(result.message);
 
-          if (error) throw error;
-          fetchSiswaDariSupabase();
-          showToast('Data siswa berhasil dihapus secara permanen.', 'success');
+          fetchSiswa();
+          showToast('Data murid berhasil dihapus.', 'success');
         } catch (err: any) {
-          showToast(`Gagal menghapus data: ${err.message}`, 'error');
+          showToast(err.message || 'Gagal menghapus murid.', 'error');
         } finally {
-          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+          setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         }
-      }
+      },
     });
   };
 
-  const handleJurnalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setIsUploadingJurnal(true);
-    setTimeout(() => {
-      setJurnalFotoName(file.name);
-      setJurnalFotoUrl(URL.createObjectURL(file));
-      setIsUploadingJurnal(false);
-    }, 1000);
-  };
-
-  const handleOpenJurnal = (siswa: SiswaItem) => {
-    setSelectedSiswa(siswa);
-    setJurnalText(siswa.jurnal_hari_ini === 'Belum diisi oleh guru.' ? '' : siswa.jurnal_hari_ini);
-    setJurnalFotoUrl(siswa.foto_jurnal);
-    setJurnalFotoName(siswa.foto_name || '');
-    setIsJurnalModalOpen(true);
-  };
-
-  const filtered = siswaList.filter(s => {
-    const studentName = s.name?.toLowerCase() || '';
-    const studentNisn = s.nisn || '';
-    const searchKeyword = search.toLowerCase();
-    return studentName.includes(searchKeyword) || studentNisn.includes(searchKeyword);
+  const filteredSiswa = siswaList.filter((s) => {
+    const matchSearch =
+      s.nama.toLowerCase().includes(search.toLowerCase()) ||
+      s.nis.toLowerCase().includes(search.toLowerCase());
+    const matchKelas = filterKelas === 'Semua' || s.kelas === filterKelas;
+    return matchSearch && matchKelas;
   });
 
   return (
-    <div className="pb-28 font-sans">
-      {/* HEADER UTAMA */}
-      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-4">
+    <div className="space-y-6">
+      {/* HEADER SECTION */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200/80 pb-4">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Database Anak Didik</h1>
-          <p className="text-xs text-slate-400 font-medium mt-0.5">Koneksi Real-time Cloud Supabase • TK CAHAYA HATI</p>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Manajemen Data Murid</h1>
+          <p className="text-xs text-slate-500 font-semibold mt-0.5">Kelola data induk anak didik dan catatan jurnal observasi harian.</p>
         </div>
-        <button onClick={() => setIsModalOpen(true)} className="hidden md:flex bg-[#02677f] hover:bg-[#005468] text-white px-4 py-2 rounded-xl font-bold text-xs shadow-xs items-center gap-1.5 transition-all">
-          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <path d="M12 5V19M5 12H19" strokeLinecap="round" strokeLinejoin="round"/>
+        <button
+          onClick={() => handleOpenModal()}
+          className="bg-[#02677f] hover:bg-[#005468] text-white px-4 py-2.5 rounded-2xl font-bold text-xs shadow-xs transition-all flex items-center gap-1.5 active:scale-95"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
           </svg>
-          Tambah Siswa Baru
+          Tambah Murid Baru
         </button>
-      </header>
-
-      {/* SEARCH BAR */}
-      <div className="relative max-w-md w-full mt-4">
-        <input 
-          type="text" 
-          placeholder="Cari nama atau NIS anak didik..." 
-          value={search} 
-          onChange={(e) => setSearch(e.target.value)} 
-          className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 focus:border-[#02677f] rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none transition-all shadow-3xs" 
-        />
-        <svg className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-        </svg>
       </div>
 
-      {loadingData ? (
-        <div className="p-12 text-center text-xs font-bold text-slate-400 animate-pulse">Menghubungkan ke pangkalan data Supabase...</div>
-      ) : (
-        <>
-          {/* VIEW MOBILE */}
-          <div className="grid grid-cols-1 gap-4 md:hidden mt-5">
-            {filtered.map((s) => (
-              <div key={s.id} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-3xs animate-fadeIn">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="font-bold text-slate-900 text-sm leading-tight">{s.name}</h4>
-                    <span className="text-[10px] font-mono font-bold text-[#02677f] block mt-1 uppercase">NIS: {s.nisn}</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold tracking-wide bg-slate-100 text-slate-700 uppercase shrink-0">
-                    {s.class.replace(' Class', '')}
-                  </span>
-                </div>
-                <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase block mb-0.5 tracking-wider">Log Hari Ini</span>
-                  <p className="text-xs text-slate-600 font-semibold leading-relaxed line-clamp-2">{s.jurnal_hari_ini}</p>
-                </div>
-                <div className="flex items-center justify-between pt-1 border-t border-slate-100 gap-2">
-                  <button onClick={() => handleOpenJurnal(s)} className="border border-slate-200 hover:border-[#02677f] hover:bg-sky-50 text-slate-800 font-bold px-3 py-2 rounded-xl text-[11px] inline-flex items-center gap-1.5 transition-all flex-1 justify-center bg-white shadow-3xs">
-                    <svg className="w-3.5 h-3.5 text-[#02677f]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                    Jurnal Harian
-                  </button>
-                  <button onClick={() => triggerDeleteSiswa(s)} className="text-slate-400 hover:text-rose-600 p-2 rounded-xl transition-colors shrink-0">
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* SEARCH & FILTER CONTROLS */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            placeholder="Cari murid berdasarkan nama atau nomor NIS..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#02677f] transition-all shadow-3xs"
+          />
+          <svg className="w-4 h-4 text-slate-400 absolute left-3 top-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+          </svg>
+        </div>
 
-          {/* VIEW DESKTOP */}
-          <div className="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden mt-4">
-            <table className="w-full text-left border-collapse text-xs">
+        <div className="flex gap-2">
+          {['Semua', 'Kelompok A', 'Kelompok B', 'Playgroup'].map((cls) => (
+            <button
+              key={cls}
+              onClick={() => setFilterKelas(cls)}
+              className={`px-4 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all ${
+                filterKelas === cls
+                  ? 'bg-[#02677f] text-white shadow-xs'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {cls}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* TABEL DATA SISWA */}
+      <div className="bg-white rounded-3xl border border-slate-200/80 shadow-3xs overflow-hidden">
+        {loading ? (
+          <div className="p-16 text-center text-xs font-bold text-slate-400 animate-pulse">
+            Memuat daftar data murid dari Neon PostgreSQL...
+          </div>
+        ) : filteredSiswa.length === 0 ? (
+          <div className="p-16 text-center text-xs font-bold text-slate-400">
+            Tidak ada data murid yang sesuai dengan pencarian.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="p-4 pl-6">NIS (Identitas)</th>
-                  <th className="p-4">Nama Lengkap</th>
-                  <th className="p-4">Kelas</th>
-                  <th className="p-4">Log Hari Ini</th>
-                  <th className="p-4 text-right pr-6">Aksi & Log</th>
+                <tr className="bg-slate-50/80 border-b border-slate-100 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                  <th className="py-3.5 px-5">NIS</th>
+                  <th className="py-3.5 px-5">Nama Murid</th>
+                  <th className="py-3.5 px-5">Kelompok</th>
+                  <th className="py-3.5 px-5">Wali Terhubung</th>
+                  <th className="py-3.5 px-5">Observasi Hari Ini</th>
+                  <th className="py-3.5 px-5 text-right">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-medium text-slate-600">
-                {filtered.map((s) => (
-                  <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="p-4 pl-6"><div className="font-mono font-bold text-[#02677f] text-[11px]">{s.nisn}</div></td>
-                    <td className="p-4 font-bold text-slate-900 text-sm">{s.name}</td>
-                    <td className="p-4 font-semibold text-slate-700">{s.class}</td>
-                    <td className="p-4 text-slate-500 truncate max-w-[180px] font-semibold">{s.jurnal_hari_ini}</td>
-                    <td className="p-4 text-right pr-6 space-x-2">
-                      <button onClick={() => handleOpenJurnal(s)} className="border border-slate-200 hover:border-[#02677f] hover:bg-sky-50 text-slate-800 font-bold px-3 py-1.5 rounded-xl text-[11px] inline-flex items-center gap-1.5 bg-white shadow-3xs transition-all">
-                        <svg className="w-3.5 h-3.5 text-[#02677f]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                        Jurnal Harian
-                      </button>
-                      <button onClick={() => triggerDeleteSiswa(s)} className="text-slate-400 hover:text-rose-600 p-1.5 rounded-xl transition-colors"><svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
+              <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700">
+                {filteredSiswa.map((siswa) => (
+                  <tr key={siswa.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-4 px-5 font-mono text-[#02677f] font-extrabold">{siswa.nis}</td>
+                    <td className="py-4 px-5">
+                      <span className="text-slate-900 font-extrabold block">{siswa.nama}</span>
+                      <span className={`inline-block text-[9px] px-2 py-0.5 rounded-md mt-0.5 ${
+                        siswa.status === 'Aktif' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {siswa.status}
+                      </span>
+                    </td>
+                    <td className="py-4 px-5">{siswa.kelas}</td>
+                    <td className="py-4 px-5 text-slate-500">{siswa.nama_wali || '-'}</td>
+                    <td className="py-4 px-5 max-w-xs">
+                      {siswa.jurnal_hari_ini ? (
+                        <p className="line-clamp-1 text-[11px] text-slate-600 font-medium">{siswa.jurnal_hari_ini}</p>
+                      ) : (
+                        <span className="text-[10px] text-slate-300 italic">Belum ada catatan hari ini</span>
+                      )}
+                    </td>
+                    <td className="py-4 px-5 text-right">
+                      <div className="inline-flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleOpenJurnalModal(siswa)}
+                          className="px-2.5 py-1.5 bg-sky-50 text-[#02677f] hover:bg-sky-100 rounded-xl text-[11px] font-extrabold transition-colors"
+                          title="Input Jurnal Harian"
+                        >
+                          Jurnal
+                        </button>
+                        <button
+                          onClick={() => handleOpenModal(siswa)}
+                          className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors"
+                          title="Edit Murid"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSiswa(siswa)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition-colors"
+                          title="Hapus Murid"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </>
-      )}
-
-      {/* FLOATING FAB MOBILE */}
-      <div className="fixed bottom-[92px] right-4 left-4 md:hidden z-40">
-        <button 
-          onClick={() => setIsModalOpen(true)} 
-          className="w-full bg-[#02677f] hover:bg-[#005468] text-white py-3 rounded-2xl font-bold text-xs shadow-lg flex items-center justify-center gap-1.5 transition-all active:scale-98"
-        >
-          <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-            <path d="M12 5V19M5 12H19" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          Tambah Siswa Baru
-        </button>
+        )}
       </div>
 
-      {/* MODAL REGISTRASI SISWA */}
+      {/* MODAL FORM TAMBAH / EDIT SISWA */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-xl space-y-4 animate-fadeIn">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Registrasi Siswa Baru</h3>
-              <button onClick={() => { setIsModalOpen(false); setIsClassDropdownOpen(false); }} className="text-slate-400 hover:text-slate-600"><svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" strokeLinecap="round"/></svg></button>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                {selectedSiswa ? 'Edit Data Murid' : 'Tambah Murid Baru'}
+              </h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
-            <form onSubmit={handleAddSiswa} className="space-y-4">
+
+            <form onSubmit={handleSaveSiswa} className="space-y-3.5">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Nama Lengkap Murid</label>
-                <input 
-                  type="text" required placeholder="Masukkan nama anak" value={newName} 
-                  onChange={(e) => setNewName(e.target.value)} 
-                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#02677f] focus:bg-white bg-slate-50/50 transition-all" 
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">NIS (Nomor Induk Siswa)</label>
-                <input 
-                  type="text" required placeholder="Masukkan nomor induk murid" value={newNisn} 
-                  onChange={(e) => setNewNisn(e.target.value)} 
-                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#02677f] focus:bg-white bg-slate-50/50 transition-all" 
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Nomor Induk Siswa (NIS)</label>
+                <input
+                  type="text"
+                  placeholder="Contoh: 202601001"
+                  value={formData.nis}
+                  onChange={(e) => setFormData({ ...formData, nis: e.target.value })}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
                 />
               </div>
 
-              {/* CUSTOM DROPDOWN KELAS */}
-              <div className="space-y-1 relative">
-                <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Kelas</label>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsClassDropdownOpen(!isClassDropdownOpen)}
-                    className="w-full p-3 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-900 bg-slate-50/50 outline-none text-left flex justify-between items-center transition-all focus:border-[#02677f] focus:bg-white"
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Nama Lengkap Murid</label>
+                <input
+                  type="text"
+                  placeholder="Ketik nama lengkap anak didik..."
+                  value={formData.nama}
+                  onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Kelompok Belajar</label>
+                  <select
+                    value={formData.kelas}
+                    onChange={(e) => setFormData({ ...formData, kelas: e.target.value })}
+                    className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
                   >
-                    <span>{newClass}</span>
-                    <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${isClassDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </button>
+                    <option value="Kelompok A">Kelompok A</option>
+                    <option value="Kelompok B">Kelompok B</option>
+                    <option value="Playgroup">Playgroup</option>
+                  </select>
+                </div>
 
-                  {isClassDropdownOpen && (
-                    <div className="absolute left-0 right-0 top-[46px] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden divide-y divide-slate-100 animate-fadeIn max-w-full">
-                      {classOptions.map((option) => (
-                        <div
-                          key={option}
-                          onClick={() => {
-                            setNewClass(option);
-                            setIsClassDropdownOpen(false);
-                          }}
-                          className="p-3 text-xs font-bold text-slate-900 hover:bg-sky-50 cursor-pointer flex justify-between items-center transition-colors"
-                        >
-                          <span>{option}</span>
-                          {newClass === option && (
-                            <svg className="w-3.5 h-3.5 text-[#02677f]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Status Murid</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
+                  >
+                    <option value="Aktif">Aktif</option>
+                    <option value="Non-Aktif">Non-Aktif</option>
+                    <option value="Lulus">Lulus</option>
+                  </select>
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Nama Lengkap Wali Murid</label>
-                <input 
-                  type="text" required placeholder="Nama Ayah / Bunda" value={newParent} 
-                  onChange={(e) => setNewParent(e.target.value)} 
-                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#02677f] focus:bg-white bg-slate-50/50 transition-all" 
-                />
-              </div>
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
-                <button type="button" onClick={() => { setIsModalOpen(false); setIsClassDropdownOpen(false); }} className="border border-slate-200 text-slate-600 font-bold px-4 py-2 rounded-xl text-xs hover:bg-slate-50">Batal</button>
-                <button type="submit" className="bg-[#02677f] hover:bg-[#005468] text-white font-bold px-4 py-2 rounded-xl text-xs shadow-xs">Simpan Data</button>
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50">
+                  Batal
+                </button>
+                <button type="submit" className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs">
+                  Simpan Data
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* MODAL JURNAL HARIAN */}
-      {isJurnalModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-xl space-y-4 animate-fadeIn">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+      {/* MODAL JURNAL HARIAN OBSERVASi */}
+      {isJurnalModalOpen && selectedSiswa && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-lg w-full shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <div>
-                <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">Laporan Jurnal Harian</h3>
-                <span className="text-[10px] text-[#02677f] font-bold">Subjek: {selectedSiswa?.name}</span>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Jurnal Harian Murid</h3>
+                <p className="text-[11px] text-[#02677f] font-bold">{selectedSiswa.nama} ({selectedSiswa.nis})</p>
               </div>
-              <button onClick={() => setIsJurnalModalOpen(false)} className="text-slate-400 hover:text-slate-600"><svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" strokeLinecap="round"/></svg></button>
+              <button onClick={() => setIsJurnalModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
             </div>
+
             <form onSubmit={handleSaveJurnal} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Narasi Progres Hari Ini</label>
-                <textarea 
-                  rows={4} required value={jurnalText} onChange={(e) => setJurnalText(e.target.value)} 
-                  placeholder="Tulis cerita aktivitas anak..." 
-                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#02677f] focus:bg-white bg-slate-50/40 leading-relaxed resize-none transition-all"
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Catatan Aktivitas & Observasi Guru</label>
+                <textarea
+                  rows={4}
+                  placeholder="Tuliskan perkembangan sikap, keaktifan belajar, atau catatan khusus murid hari ini..."
+                  value={jurnalData.jurnal_hari_ini}
+                  onChange={(e) => setJurnalData({ ...jurnalData, jurnal_hari_ini: e.target.value })}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all resize-none leading-relaxed"
                 />
               </div>
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Foto Dokumentasi</label>
-                {jurnalFotoUrl ? (
-                  <div className="flex items-center justify-between bg-white border border-[#02677f]/20 p-3 rounded-xl shadow-3xs">
-                    <div className="flex items-center gap-2.5 truncate">
-                      <img src={jurnalFotoUrl} alt="Preview" className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0" />
-                      <div className="truncate">
-                        <span className="block text-xs font-bold text-slate-800 truncate">{jurnalFotoName || 'gambar.jpg'}</span>
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => { setJurnalFotoName(''); setJurnalFotoUrl(''); }} className="text-xs font-bold text-rose-600 px-2 py-1">Hapus</button>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Foto Dokumentasi Hari Ini</label>
+                {jurnalData.foto_jurnal ? (
+                  <div className="border border-slate-200 bg-white p-2.5 rounded-xl flex items-center justify-between gap-3 shadow-3xs">
+                    <img src={jurnalData.foto_jurnal} alt="Preview Jurnal" className="w-12 h-12 rounded-lg object-cover bg-slate-50 border border-slate-100" />
+                    <button
+                      type="button"
+                      onClick={() => setJurnalData({ ...jurnalData, foto_jurnal: '' })}
+                      className="text-xs font-bold text-rose-600 hover:text-rose-700"
+                    >
+                      Hapus Foto
+                    </button>
                   </div>
                 ) : (
-                  <div className="relative border-2 border-dashed border-slate-200 hover:border-[#02677f] rounded-xl p-5 text-center bg-slate-50/30 transition-colors cursor-pointer group">
-                    <input type="file" accept="image/*" onChange={handleJurnalFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                    <div className="text-xs font-bold group-hover:text-[#02677f] flex items-center justify-center gap-1.5 text-slate-400">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      {isUploadingJurnal ? 'Memproses berkas...' : 'Klik / Seret Gambar Dokumentasi'}
-                    </div>
-                  </div>
+                  <label className="border-2 border-dashed border-slate-200 hover:border-[#02677f] rounded-xl p-4 text-center bg-slate-50/20 transition-colors cursor-pointer flex flex-col items-center justify-center gap-1">
+                    <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                    <span className="text-xs font-bold text-slate-400">
+                      {isUploadingPhoto ? 'Memproses gambar...' : 'Klik untuk unggah foto dokumentasi'}
+                    </span>
+                  </label>
                 )}
               </div>
-              <div className="pt-2 flex justify-end gap-2 border-t border-slate-100">
-                <button type="button" onClick={() => setIsJurnalModalOpen(false)} className="border border-slate-200 text-slate-600 font-bold px-4 py-2 rounded-xl text-xs hover:bg-slate-50">Batal</button>
-                <button type="submit" className="bg-[#02677f] hover:bg-[#005468] text-white font-bold px-5 py-2 rounded-xl text-xs shadow-xs">Kirim ke Wali Murid</button>
+
+              <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+                <button type="button" onClick={() => setIsJurnalModalOpen(false)} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50">
+                  Batal
+                </button>
+                <button type="submit" className="px-5 py-2 bg-[#02677f] hover:bg-[#005468] text-white rounded-xl text-xs font-bold shadow-xs">
+                  Simpan Jurnal
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* TOAST & CONFIRM DIALOG */}
+      {/* CONFIRM DIALOG */}
+      {confirmDialog.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-sm w-full shadow-2xl space-y-4 text-center animate-fadeIn">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mx-auto">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Konfirmasi Hapus Murid</h3>
+              <p className="text-slate-500 text-xs leading-relaxed font-semibold">{confirmDialog.message}</p>
+            </div>
+            <div className="pt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: () => {} })}
+                className="flex-1 border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl text-xs hover:bg-slate-50 transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmDialog.onConfirm}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-xs transition-colors"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST */}
       {toast.isOpen && (
         <div className="fixed top-5 right-5 z-50 animate-fadeIn pointer-events-none">
           <div className={`px-4 py-3 rounded-2xl shadow-lg border text-xs font-bold flex items-center gap-2.5 bg-white ${
@@ -449,21 +525,6 @@ export default function AdminSiswaPage() {
             toast.type === 'warning' ? 'border-amber-100 text-amber-700' : 'border-rose-100 text-rose-600'
           }`}>
             {toast.message}
-          </div>
-        </div>
-      )}
-
-      {confirmDialog.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-sm w-full shadow-2xl space-y-4 text-center animate-fadeIn">
-            <div className="space-y-1">
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Konfirmasi Penghapusan</h3>
-              <p className="text-slate-500 text-xs leading-relaxed font-semibold">{confirmDialog.message}</p>
-            </div>
-            <div className="pt-2 flex gap-2">
-              <button type="button" onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} className="flex-1 border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl text-xs hover:bg-slate-50">Batal</button>
-              <button type="button" onClick={confirmDialog.onConfirm} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-xs">Hapus Permanen</button>
-            </div>
           </div>
         </div>
       )}
