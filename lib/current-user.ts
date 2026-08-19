@@ -1,33 +1,43 @@
 import { currentUser } from "@clerk/nextjs/server";
-import { db } from "./prisma";
+import { db } from "@/lib/prisma";
 
 export async function getCurrentUser() {
-  const clerkUser = await currentUser();
+  const user = await currentUser();
 
-  if (!clerkUser) {
+  if (!user) {
     return null;
   }
 
-  const email = clerkUser.emailAddresses[0]?.emailAddress ?? "";
-  const nama =
-    `${clerkUser.firstName ?? ""} ${clerkUser.lastName ?? ""}`.trim() ||
-    clerkUser.username ||
-    "Pengguna";
+  const email = user.primaryEmailAddress?.emailAddress?.toLowerCase();
 
-  // Upsert: Simpan jika belum ada, atau update jika sudah terdaftar
-  const user = await db.pengguna.upsert({
-    where: { clerkId: clerkUser.id },
-    update: {
-      email,
-      nama,
-    },
-    create: {
-      clerkId: clerkUser.id,
-      email,
-      nama,
-      role: "WALI_MURID",
-    },
+  if (!email) {
+    return null;
+  }
+
+  let profile = await db.pengguna.findUnique({
+    where: { email },
   });
 
-  return user;
+  if (!profile) {
+    const nama = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "Pengguna";
+    profile = await db.pengguna.create({
+      data: {
+        clerkId: user.id,
+        email,
+        nama,
+        levelAkses: "WALI MURID",
+        avatarUrl: user.imageUrl || null,
+      },
+    });
+  } else if (!profile.clerkId) {
+    profile = await db.pengguna.update({
+      where: { email },
+      data: {
+        clerkId: user.id,
+        avatarUrl: user.imageUrl || profile.avatarUrl,
+      },
+    });
+  }
+
+  return profile;
 }
