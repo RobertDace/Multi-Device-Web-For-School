@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { UserButton } from '@clerk/nextjs';
 
 interface SiswaData {
   id: string;
@@ -13,6 +12,13 @@ interface SiswaData {
   jurnal_hari_ini?: string;
   foto_jurnal?: string;
   foto_name?: string;
+}
+
+interface SiswaListItem {
+  id: string;
+  nis: string;
+  nama: string;
+  kelas: string;
 }
 
 interface RaporData {
@@ -45,6 +51,7 @@ interface AgendaData {
 export default function WaliDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [siswa, setSiswa] = useState<SiswaData | null>(null);
+  const [siswaList, setSiswaList] = useState<SiswaListItem[]>([]);
   const [rapor, setRapor] = useState<RaporData | null>(null);
   const [agendaList, setAgendaList] = useState<AgendaData[]>([]);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -70,16 +77,18 @@ export default function WaliDashboardPage() {
     }
   };
 
-  const fetchWaliDashboardData = async () => {
+  const fetchWaliDashboardData = async (siswaId?: string) => {
     setLoading(true);
     try {
-      const res = await fetch('/api/wali/dashboard');
+      const url = siswaId ? `/api/wali/dashboard?siswaId=${siswaId}` : '/api/wali/dashboard';
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Gagal mengambil data dari server');
 
       const data = await res.json();
-      if (data.siswa) setSiswa(data.siswa);
-      if (data.rapor) setRapor(data.rapor);
-      if (data.agendaList) setAgendaList(data.agendaList);
+      setSiswa(data.siswa || null);
+      setSiswaList(data.siswaList || []);
+      setRapor(data.rapor || null);
+      setAgendaList(data.agendaList || []);
     } catch (err: any) {
       console.error('Gagal memuat dashboard wali murid:', err.message);
       showToast('Koneksi ke database server terganggu.', 'error');
@@ -105,9 +114,34 @@ export default function WaliDashboardPage() {
             <span className="w-2.5 h-2.5 rounded-full bg-[#02677f] animate-pulse" />
             <span className="text-xs font-extrabold text-[#02677f]">Tahun Ajaran 2026/2027</span>
           </div>
-          <UserButton />
         </div>
       </header>
+
+      {/* MULTIPLE CHILDREN SELECTOR (JIKA LEBIH DARI 1 ANAK) */}
+      {siswaList.length > 1 && (
+        <div className="bg-white border border-slate-200/80 rounded-2xl p-3 flex flex-wrap items-center gap-2 shadow-3xs">
+          <span className="text-xs font-bold text-slate-500 mr-1">Pilih Ananda:</span>
+          {siswaList.map((item) => {
+            const isSelected = siswa?.id === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => fetchWaliDashboardData(item.id)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-[#02677f] text-white shadow-xs'
+                    : 'bg-slate-50 border border-slate-200/80 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <span>{item.nama}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${isSelected ? 'bg-white/20' : 'bg-slate-200 text-slate-600'}`}>
+                  {item.kelas}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {loading ? (
         <div className="p-16 text-center text-xs font-bold text-slate-400 animate-pulse">
@@ -115,7 +149,7 @@ export default function WaliDashboardPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* BANNER PROFIL ANANDA */}
+          {/* BANNER PROFIL ANANDA ATAU NOTICE BELUM TERHUBUNG */}
           {siswa ? (
             <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-[#02677f] rounded-3xl p-5 md:p-6 text-white shadow-md space-y-4 animate-fadeIn">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -143,8 +177,16 @@ export default function WaliDashboardPage() {
               </div>
             </div>
           ) : (
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 text-center text-xs font-bold text-slate-400">
-              Data murid belum terhubung dengan akun Anda.
+            <div className="bg-white border border-amber-200/80 rounded-3xl p-6 sm:p-8 text-center space-y-3 shadow-3xs bg-gradient-to-b from-amber-50/40 to-white">
+              <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center mx-auto shadow-2xs">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                </svg>
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900">Akun Anda Belum Ditautkan ke Data Murid</h3>
+              <p className="text-xs text-slate-500 max-w-lg mx-auto leading-relaxed font-medium">
+                Sistem tidak mendeteksi profil anak yang terhubung dengan email akun Anda. Silakan hubungi bagian administrasi atau guru kelas TK CAHAYA HATI agar akun Anda dapat ditautkan dengan data ananda.
+              </p>
             </div>
           )}
 
@@ -152,57 +194,59 @@ export default function WaliDashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
             {/* SISI KIRI: JURNAL & AGENDA */}
             <div className="lg:col-span-2 space-y-6">
-              {/* KARTU JURNAL */}
-              <div className="bg-white rounded-3xl border border-slate-200/80 p-5 md:p-6 shadow-3xs space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-[#02677f]">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Jurnal Aktivitas Harian Ananda</h3>
-                      <p className="text-[10px] text-slate-400 font-semibold">Laporan observasi guru kelas hari ini</p>
-                    </div>
-                  </div>
-
-                  <span className="text-[10px] font-extrabold text-[#02677f] bg-sky-50 border border-sky-100 px-3 py-1 rounded-xl">
-                    Update Terbaru
-                  </span>
-                </div>
-
-                <div className="space-y-3.5">
-                  <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-1.5">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Catatan Aktivitas Belajar & Bermain</span>
-                    <p className="text-xs font-bold text-slate-900 leading-relaxed">
-                      {siswa?.jurnal_hari_ini || 'Belum ada pembaharuan catatan harian dari guru kelas.'}
-                    </p>
-                  </div>
-
-                  {siswa?.foto_jurnal && (
-                    <div className="space-y-1.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Dokumentasi Foto Hari Ini</span>
-                      <div 
-                        onClick={() => setSelectedImage(siswa.foto_jurnal || null)}
-                        className="w-full h-52 md:h-64 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 relative group cursor-pointer shadow-3xs"
-                      >
-                        <img 
-                          src={siswa.foto_jurnal} 
-                          alt="Dokumentasi Jurnal" 
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                        />
-                        <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-                          </svg>
-                          Klik Untuk Memperbesar
-                        </div>
+              {/* KARTU JURNAL (HANYA AKTIF JIKA ADA DATA SISWA) */}
+              {siswa && (
+                <div className="bg-white rounded-3xl border border-slate-200/80 p-5 md:p-6 shadow-3xs space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-2xl bg-sky-50 border border-sky-100 flex items-center justify-center text-[#02677f]">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Jurnal Aktivitas Harian Ananda</h3>
+                        <p className="text-[10px] text-slate-400 font-semibold">Laporan observasi guru kelas hari ini</p>
                       </div>
                     </div>
-                  )}
+
+                    <span className="text-[10px] font-extrabold text-[#02677f] bg-sky-50 border border-sky-100 px-3 py-1 rounded-xl">
+                      Update Terbaru
+                    </span>
+                  </div>
+
+                  <div className="space-y-3.5">
+                    <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200/80 space-y-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Catatan Aktivitas Belajar & Bermain</span>
+                      <p className="text-xs font-bold text-slate-900 leading-relaxed">
+                        {siswa?.jurnal_hari_ini || 'Belum ada pembaharuan catatan harian dari guru kelas.'}
+                      </p>
+                    </div>
+
+                    {siswa?.foto_jurnal && (
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Dokumentasi Foto Hari Ini</span>
+                        <div 
+                          onClick={() => setSelectedImage(siswa.foto_jurnal || null)}
+                          className="w-full h-52 md:h-64 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 relative group cursor-pointer shadow-3xs"
+                        >
+                          <img 
+                            src={siswa.foto_jurnal} 
+                            alt="Dokumentasi Jurnal" 
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                          />
+                          <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                            </svg>
+                            Klik Untuk Memperbesar
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* KARTU AGENDA */}
               <div className="bg-white rounded-3xl border border-slate-200/80 p-5 md:p-6 shadow-3xs space-y-4">
@@ -249,68 +293,70 @@ export default function WaliDashboardPage() {
 
             {/* SISI KANAN: RAPOR & KONTAK */}
             <div className="lg:col-span-1 space-y-6">
-              {/* KARTU RAPOR */}
-              <div className="bg-white rounded-3xl border border-slate-200/80 p-5 md:p-6 shadow-3xs space-y-4">
-                <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
-                  <div className="w-9 h-9 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                    </svg>
+              {/* KARTU RAPOR (JIKA ADA DATA SISWA) */}
+              {siswa && (
+                <div className="bg-white rounded-3xl border border-slate-200/80 p-5 md:p-6 shadow-3xs space-y-4">
+                  <div className="flex items-center gap-2.5 border-b border-slate-100 pb-3">
+                    <div className="w-9 h-9 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-700">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Rapor Digital Terbit</h3>
+                      <p className="text-[10px] text-slate-400 font-semibold">Capaian hasil belajar resmi</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Rapor Digital Terbit</h3>
-                    <p className="text-[10px] text-slate-400 font-semibold">Capaian hasil belajar resmi</p>
-                  </div>
+
+                  {rapor ? (
+                    <div className="space-y-3.5 animate-fadeIn">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center space-y-0.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">Sosial Emosional</span>
+                          <div className="text-sm font-extrabold text-[#02677f]">Skor: {rapor.soft_skills_score}/4</div>
+                        </div>
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center space-y-0.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">Kognitif/Akademik</span>
+                          <div className="text-sm font-extrabold text-[#02677f]">Skor: {rapor.academic_score}/3</div>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex justify-between items-center text-xs font-bold">
+                        <span className="text-[10px] text-slate-400 uppercase">Kehadiran (H/I/A):</span>
+                        <div className="font-mono text-slate-900">
+                          <span className="text-emerald-600">{rapor.hadir} Hadir</span> / <span className="text-amber-500">{rapor.izin} Izin</span> / <span className="text-rose-500">{rapor.alfa} Alfa</span>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-1">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase block">Ulasan Wali Kelas</span>
+                        <p className="text-xs font-bold text-slate-900 leading-relaxed line-clamp-4">
+                          {rapor.catatan_guru}
+                        </p>
+                      </div>
+
+                      {rapor.pdf_url && (
+                        <a 
+                          href={rapor.pdf_url} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="w-full bg-[#02677f] hover:bg-[#005468] text-white py-3 rounded-2xl font-bold text-xs shadow-xs flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                          </svg>
+                          Unduh Lembar PDF Rapor
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50 rounded-2xl p-6 text-center space-y-1 border border-slate-100">
+                      <span className="text-xs font-extrabold text-slate-700 block">Belum Ada Rapor Terbit</span>
+                      <p className="text-[11px] text-slate-400 font-medium">Laporan hasil belajar periode ini masih dalam tahap penyusunan guru.</p>
+                    </div>
+                  )}
                 </div>
-
-                {rapor ? (
-                  <div className="space-y-3.5 animate-fadeIn">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center space-y-0.5">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase">Sosial Emosional</span>
-                        <div className="text-sm font-extrabold text-[#02677f]">Skor: {rapor.soft_skills_score}/4</div>
-                      </div>
-                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 text-center space-y-0.5">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase">Kognitif/Akademik</span>
-                        <div className="text-sm font-extrabold text-[#02677f]">Skor: {rapor.academic_score}/3</div>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex justify-between items-center text-xs font-bold">
-                      <span className="text-[10px] text-slate-400 uppercase">Kehadiran (H/I/A):</span>
-                      <div className="font-mono text-slate-900">
-                        <span className="text-emerald-600">{rapor.hadir} Hadir</span> / <span className="text-amber-500">{rapor.izin} Izin</span> / <span className="text-rose-500">{rapor.alfa} Alfa</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/80 space-y-1">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase block">Ulasan Wali Kelas</span>
-                      <p className="text-xs font-bold text-slate-900 leading-relaxed line-clamp-4">
-                        {rapor.catatan_guru}
-                      </p>
-                    </div>
-
-                    {rapor.pdf_url && (
-                      <a 
-                        href={rapor.pdf_url} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="w-full bg-[#02677f] hover:bg-[#005468] text-white py-3 rounded-2xl font-bold text-xs shadow-xs flex items-center justify-center gap-2 transition-colors"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                        </svg>
-                        Unduh Lembar PDF Rapor
-                      </a>
-                    )}
-                  </div>
-                ) : (
-                  <div className="bg-slate-50 rounded-2xl p-6 text-center space-y-1 border border-slate-100">
-                    <span className="text-xs font-extrabold text-slate-700 block">Belum Ada Rapor Terbit</span>
-                    <p className="text-[11px] text-slate-400 font-medium">Laporan hasil belajar periode ini masih dalam tahap penyusunan guru.</p>
-                  </div>
-                )}
-              </div>
+              )}
 
               {/* KARTU KONTAK SEKOLAH */}
               <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-5 text-white shadow-3xs space-y-3">

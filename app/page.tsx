@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { useUser, UserButton } from '@clerk/nextjs';
+import { useAuth } from '@/lib/use-auth';
 
 interface AktivitasItem {
   id: string;
@@ -45,7 +45,8 @@ function AnimatedSection({ children, className = '', delay = 0 }: { children: Re
 }
 
 export default function LandingPage() {
-  const { isSignedIn, isLoaded } = useUser();
+  const { isSignedIn, isLoaded, user } = useAuth();
+  const userRole = user?.levelAkses || 'WALI MURID';
 
   const [aktivitasList, setAktivitasList] = useState<AktivitasItem[]>([]);
   const [kalenderList, setKalenderList] = useState<AktivitasItem[]>([]);
@@ -305,19 +306,21 @@ export default function LandingPage() {
             {isLoaded && isSignedIn ? (
               <>
                 <Link 
-                  href="/wali/dashboard" 
+                  href={userRole.toUpperCase().includes('GURU') || userRole.toUpperCase().includes('ADMIN') ? '/admin/siswa' : '/wali/dashboard'} 
                   className="bg-sky-50 text-[#02677f] hover:bg-sky-100 border border-sky-200 px-3 sm:px-4 py-1.5 rounded-full text-[11px] sm:text-xs font-extrabold transition-all inline-flex items-center gap-1 sm:gap-1.5 shadow-3xs active:scale-95"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
                   </svg>
-                  <span>Dashboard</span>
+                  <span>{userRole.toUpperCase().includes('GURU') || userRole.toUpperCase().includes('ADMIN') ? 'Portal Admin' : 'Dashboard'}</span>
                 </Link>
-                <UserButton />
+                <div className="w-8 h-8 rounded-full bg-[#02677f] text-white flex items-center justify-center font-bold text-xs shadow-2xs">
+                  {user?.nama ? user.nama.charAt(0).toUpperCase() : 'U'}
+                </div>
               </>
             ) : (
               <Link 
-                href="/sign-in" 
+                href="/login" 
                 className="bg-[#02677f] hover:bg-[#005468] text-white px-4 sm:px-5 py-2 rounded-full text-xs font-extrabold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 active:scale-95"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -835,13 +838,15 @@ export default function LandingPage() {
 
           {isLoaded && isSignedIn && (
             <Link 
-              href="/wali/dashboard" 
+              href={userRole.toUpperCase().includes('GURU') || userRole.toUpperCase().includes('ADMIN') ? '/admin/siswa' : '/wali/dashboard'} 
               className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-full text-[#02677f] hover:bg-sky-50 transition-all"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
               </svg>
-              <span className="text-[10px] font-extrabold tracking-tight">Portal</span>
+              <span className="text-[10px] font-extrabold tracking-tight">
+                {userRole.toUpperCase().includes('GURU') || userRole.toUpperCase().includes('ADMIN') ? 'Admin' : 'Portal'}
+              </span>
             </Link>
           )}
         </div>

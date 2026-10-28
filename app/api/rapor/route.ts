@@ -21,7 +21,12 @@ export async function GET() {
       izin: r.izin,
       alfa: r.alfa,
       catatan_guru: r.catatanGuru || "",
-      pdf_url: r.pdfUrl || "",
+      pdf_url: r.pdfUrl
+        ? r.pdfUrl.startsWith("data:")
+          ? `/api/rapor/${r.id}/pdf`
+          : r.pdfUrl
+        : "",
+      has_pdf: Boolean(r.pdfUrl),
       pdf_name: r.pdfName || "",
       created_at: r.createdAt.toISOString(),
     }));

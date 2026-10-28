@@ -1,24 +1,43 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
+import { getCurrentUser } from "@/lib/current-user";
 import { db } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const user = await currentUser();
-    const userEmail = user?.primaryEmailAddress?.emailAddress?.toLowerCase();
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userEmail = user.email.toLowerCase();
+
+    const { searchParams } = new URL(request.url);
+    const requestedSiswaId = searchParams.get("siswaId");
 
     let siswaData = null;
     let raporData = null;
+    let siswaList: Array<{ id: string; nis: string; nama: string; kelas: string }> = [];
 
-    // 1. Cari data siswa berdasarkan relasi email wali yang sedang login
-    if (userEmail) {
-      const wali = await db.pengguna.findUnique({
-        where: { email: userEmail },
-        include: { siswa: true },
-      });
+    // 1. Cari data wali berdasarkan email login
+    const wali = await db.pengguna.findUnique({
+      where: { email: userEmail },
+      include: { siswa: { orderBy: { nama: "asc" } } },
+    });
 
-      if (wali && wali.siswa.length > 0) {
-        const targetSiswa = wali.siswa[0];
+    if (wali && wali.siswa.length > 0) {
+      siswaList = wali.siswa.map((s) => ({
+        id: s.id,
+        nis: s.nis,
+        nama: s.nama,
+        kelas: s.kelas,
+      }));
+
+      // Pilih siswa berdasarkan requestedSiswaId atau anak pertama
+      const targetSiswa =
+        (requestedSiswaId ? wali.siswa.find((s) => s.id === requestedSiswaId) : null) ||
+        wali.siswa[0];
+
+      if (targetSiswa) {
         siswaData = {
           id: targetSiswa.id,
           nis: targetSiswa.nis,
@@ -50,59 +69,18 @@ export async function GET() {
             izin: rapor.izin,
             alfa: rapor.alfa,
             catatan_guru: rapor.catatanGuru || "",
-            pdf_url: rapor.pdfUrl || "",
+            pdf_url: rapor.pdfUrl
+              ? rapor.pdfUrl.startsWith("data:")
+                ? `/api/rapor/${rapor.id}/pdf`
+                : rapor.pdfUrl
+              : "",
             pdf_name: rapor.pdfName || "",
           };
         }
       }
     }
 
-    // 2. Fallback: Tampilkan data siswa pertama jika belum terhubung akun
-    if (!siswaData) {
-      const fallbackSiswa = await db.siswa.findFirst({
-        include: { wali: true },
-      });
-
-      if (fallbackSiswa) {
-        siswaData = {
-          id: fallbackSiswa.id,
-          nis: fallbackSiswa.nis,
-          nama: fallbackSiswa.nama,
-          kelas: fallbackSiswa.kelas,
-          nama_wali: fallbackSiswa.wali?.nama || "-",
-          status: fallbackSiswa.status,
-          jurnal_hari_ini: fallbackSiswa.jurnalHariIni || "",
-          foto_jurnal: fallbackSiswa.fotoJurnal || "",
-        };
-
-        const rapor = await db.rapor.findFirst({
-          where: { nis: fallbackSiswa.nis, status: "Published" },
-          orderBy: { createdAt: "desc" },
-        });
-
-        if (rapor) {
-          raporData = {
-            id: rapor.id,
-            nis: rapor.nis,
-            nama_siswa: rapor.namaSiswa,
-            kelas: rapor.kelas,
-            status: rapor.status,
-            soft_skills_score: rapor.softSkillsScore,
-            soft_skills_desc: rapor.softSkillsDesc || "",
-            academic_score: rapor.academicScore,
-            academic_desc: rapor.academicDesc || "",
-            hadir: rapor.hadir,
-            izin: rapor.izin,
-            alfa: rapor.alfa,
-            catatan_guru: rapor.catatanGuru || "",
-            pdf_url: rapor.pdfUrl || "",
-            pdf_name: rapor.pdfName || "",
-          };
-        }
-      }
-    }
-
-    // 3. Ambil daftar agenda kalender terbaru
+    // 2. Ambil daftar agenda kalender terbaru (maksimal 6)
     const rawAgenda = await db.aktivitas.findMany({
       orderBy: { tanggal: "asc" },
       take: 6,
@@ -119,10 +97,13 @@ export async function GET() {
 
     return NextResponse.json({
       siswa: siswaData,
+      siswaList,
       rapor: raporData,
       agendaList,
+      userRole: wali?.levelAkses || "WALI MURID",
     });
   } catch (error: any) {
+    console.error("GET /api/wali/dashboard error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

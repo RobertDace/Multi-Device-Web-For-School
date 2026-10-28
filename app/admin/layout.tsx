@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus_Jakarta_Sans } from 'next/font/google';
-import { useUser, useClerk } from '@clerk/nextjs';
+import { useAuth } from '@/lib/use-auth';
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -17,9 +17,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Clerk Auth Hooks
-  const { user, isLoaded } = useUser();
-  const { signOut, openUserProfile } = useClerk();
+  const { user, isLoaded, logout } = useAuth();
+
+  // State RBAC Authorization
+  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
 
   // State Dropdown & Modal
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -45,6 +46,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setTimeout(() => setToast({ isOpen: false, message: '', type: 'success' }), 3500);
   };
 
+  // Verifikasi Hak Akses Guru & Admin
+  useEffect(() => {
+    if (isLoaded) {
+      if (!user) {
+        router.push('/login');
+        return;
+      }
+      const role = (user.levelAkses || '').toUpperCase();
+      if (role.includes('GURU') || role.includes('ADMIN')) {
+        setIsAuthorized(true);
+      } else {
+        setIsAuthorized(false);
+        router.push('/wali/dashboard');
+      }
+    }
+  }, [isLoaded, user, router]);
+
   // Tutup dropdown saat klik di luar
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -56,12 +74,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Sinkronisasi data user dari Clerk ke Form Modal
   useEffect(() => {
     if (user) {
       setFormData({
-        nama: user.fullName || user.firstName || 'Admin TK',
-        email: user.primaryEmailAddress?.emailAddress || '',
+        nama: user.nama || 'Admin TK',
+        email: user.email || '',
       });
     }
   }, [user]);
@@ -69,75 +86,67 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const handleOpenProfileModal = () => {
     if (user) {
       setFormData({
-        nama: user.fullName || user.firstName || 'Admin TK',
-        email: user.primaryEmailAddress?.emailAddress || '',
+        nama: user.nama || 'Admin TK',
+        email: user.email || '',
       });
     }
     setIsProfileModalOpen(true);
   };
 
-  // LOGOUT MENGGUNAKAN CLERK
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
-      await signOut();
-      showToast('Berhasil keluar dari Portal Admin.', 'success');
-      setTimeout(() => {
-        setIsProfileModalOpen(false);
-        router.push('/sign-in');
-      }, 500);
+      await logout();
     } catch (err: any) {
       setIsLoggingOut(false);
-      showToast(`Gagal keluar akun: ${err.message}`, 'error');
+      showToast('Gagal keluar akun: ' + (err?.message || ''), 'error');
     }
   };
 
-  // UPLOAD AVATAR LANGSUNG KE CLERK
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-
     if (!file.type.startsWith('image/')) {
       showToast('Harap pilih berkas gambar (JPG, PNG, WEBP).', 'warning');
       return;
     }
-
-    setIsUploadingAvatar(true);
-    setUploadProgress(30);
-
-    try {
-      await user.setProfileImage({ file });
-      setUploadProgress(100);
-      showToast('Foto profil baru berhasil diperbarui!', 'success');
-    } catch (err: any) {
-      showToast(`Gagal mengunggah foto profil: ${err.message}`, 'error');
-    } finally {
-      setIsUploadingAvatar(false);
-    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64 = reader.result as string;
+        await fetch(`/api/users/${user.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ avatar_url: base64 }),
+        });
+        showToast('Foto profil baru berhasil diperbarui!', 'success');
+        window.location.reload();
+      } catch (err: any) {
+        showToast('Gagal mengubah foto: ' + (err?.message || ''), 'error');
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
-  // SIMPAN PERUBAHAN NAMA KE CLERK
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.nama.trim() || !user) {
       showToast('Nama lengkap tidak boleh kosong.', 'warning');
       return;
     }
-
     try {
-      const nameParts = formData.nama.trim().split(' ');
-      const firstName = nameParts[0];
-      const lastName = nameParts.slice(1).join(' ');
-
-      await user.update({
-        firstName,
-        lastName: lastName || undefined,
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nama: formData.nama.trim() }),
       });
-
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message);
       showToast('Profil akun Anda berhasil disimpan!', 'success');
       setIsProfileModalOpen(false);
+      window.location.reload();
     } catch (err: any) {
-      showToast(`Gagal memperbarui profil: ${err.message}`, 'error');
+      showToast('Gagal memperbarui profil: ' + (err?.message || ''), 'error');
     }
   };
 
@@ -170,6 +179,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       )
     },
     {
+      name: 'Laporan',
+      href: '/admin/laporan',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+        </svg>
+      )
+    },
+    {
       name: 'Landing',
       href: '/admin/editor',
       icon: (
@@ -186,11 +204,36 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a5.97 5.97 0 0 0-.942 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
         </svg>
       )
+    },
+    {
+      name: 'Pengaturan',
+      href: '/admin/landing',
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+        </svg>
+      )
     }
   ];
 
-  const displayName = isLoaded ? (user?.fullName || user?.firstName || 'Admin TK') : 'Memuat...';
-  const displayAvatar = user?.imageUrl || '';
+  if (!isLoaded || isAuthorized === null) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 border-4 border-[#02677f] border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs font-bold text-slate-500">Memverifikasi hak akses portal admin...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAuthorized === false) {
+    return null;
+  }
+
+  const displayName = isLoaded ? (user?.nama || 'Admin TK') : 'Memuat...';
+  const displayAvatar = user?.avatarUrl || '';
 
   return (
     <div className={`${jakarta.variable} font-sans min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-[#02677f] selection:text-white`}>
@@ -260,7 +303,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   {displayName}
                 </span>
                 <span className="block text-[9px] font-mono font-bold text-slate-400 uppercase">
-                  GURU & ADMIN
+                  {user?.levelAkses || 'ADMIN'}
                 </span>
               </div>
 
@@ -413,14 +456,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alamat Email Login (Clerk)</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alamat Email Terdaftar</label>
                 <input 
                   type="email" 
                   value={formData.email}
                   disabled
                   className="w-full p-3 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-400 bg-slate-100 cursor-not-allowed outline-none"
                 />
-                <p className="text-[9px] text-slate-400 font-medium">Email dikelola langsung melalui sistem Clerk.</p>
+                <p className="text-[9px] text-slate-400 font-medium">Alamat email terhubung dengan akun portal Anda.</p>
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">

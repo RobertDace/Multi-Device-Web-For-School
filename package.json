@@ -12,7 +12,7 @@
     "@clerk/nextjs": "^7.7.8",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
-    "@supabase/supabase-js": "^2.110.5",
+    "docx": "^9.15.0",
     "next": "16.2.10",
     "pg": "^8.23.0",
     "react": "19.2.4",

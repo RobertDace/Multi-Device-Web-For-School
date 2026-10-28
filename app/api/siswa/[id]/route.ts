@@ -16,6 +16,7 @@ export async function PUT(
         nama: body.nama ? body.nama.trim() : undefined,
         kelas: body.kelas,
         status: body.status,
+        waliId: body.wali_id !== undefined ? (body.wali_id || null) : undefined,
         jurnalHariIni: body.jurnal_hari_ini !== undefined ? body.jurnal_hari_ini : undefined,
         fotoJurnal: body.foto_jurnal !== undefined ? body.foto_jurnal : undefined,
       },

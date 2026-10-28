@@ -1,43 +1,41 @@
-import { currentUser } from "@clerk/nextjs/server";
+import { cookies } from "next/headers";
 import { db } from "@/lib/prisma";
+import { verifySession, SESSION_COOKIE_NAME } from "@/lib/auth";
 
 export async function getCurrentUser() {
-  const user = await currentUser();
+  try {
+    const cookieStore = await cookies();
+    const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
-  if (!user) {
+    if (!sessionToken) {
+      return null;
+    }
+
+    const session = verifySession(sessionToken);
+    if (!session) {
+      return null;
+    }
+
+    // Ambil data user terbaru dari database
+    const profile = await db.pengguna.findUnique({
+      where: { id: session.id },
+    });
+
+    return profile;
+  } catch (err) {
+    console.error("Gagal mengambil session pengguna:", err);
     return null;
   }
+}
 
-  const email = user.primaryEmailAddress?.emailAddress?.toLowerCase();
-
-  if (!email) {
-    return null;
-  }
-
-  let profile = await db.pengguna.findUnique({
-    where: { email },
-  });
-
+export async function requireAdmin() {
+  const profile = await getCurrentUser();
   if (!profile) {
-    const nama = `${user.firstName || ""} ${user.lastName || ""}`.trim() || "Pengguna";
-    profile = await db.pengguna.create({
-      data: {
-        clerkId: user.id,
-        email,
-        nama,
-        levelAkses: "WALI MURID",
-        avatarUrl: user.imageUrl || null,
-      },
-    });
-  } else if (!profile.clerkId) {
-    profile = await db.pengguna.update({
-      where: { email },
-      data: {
-        clerkId: user.id,
-        avatarUrl: user.imageUrl || profile.avatarUrl,
-      },
-    });
+    return null;
   }
-
-  return profile;
+  const role = (profile.levelAkses || "").toUpperCase();
+  if (role.includes("GURU") || role.includes("ADMIN")) {
+    return profile;
+  }
+  return null;
 }

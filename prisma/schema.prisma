@@ -16,13 +16,29 @@ model Pengguna {
   clerkId    String?  @unique @map("clerk_id")
   nama       String
   email      String   @unique
+  password   String?
   levelAkses String   @default("WALI MURID") @map("level_akses")
   avatarUrl  String?  @map("avatar_url")
   createdAt  DateTime @default(now()) @map("created_at")
 
   siswa Siswa[] @relation("WaliToSiswa")
+  laporanKegiatan LaporanKegiatan[]
 
   @@map("pengguna")
+}
+
+model LaporanKegiatan {
+  id        String   @id @default(cuid())
+  judul     String
+  subjudul  String?
+  dataJson  Json     @map("data_json")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  userId String   @map("user_id")
+  user   Pengguna @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("laporan_kegiatan")
 }
 
 model Siswa {
@@ -78,4 +94,19 @@ model Aktivitas {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("aktivitas")
+}
+
+model Pengaturan {
+  id              String   @id @default("default")
+  namaSekolah     String   @default("TK CAHAYA HATI") @map("nama_sekolah")
+  npsn            String   @default("69974201")
+  tagline         String   @default("Bermain dan Belajar dengan Riang Gembira")
+  email           String   @default("halo@cahayahati.sch.id")
+  telepon         String   @default("(0541) 555-0123")
+  alamat          String   @default("Jl. Pelangi No. 123, Samarinda, Kalimantan Timur")
+  tahunAjaran     String   @default("2026/2027") @map("tahun_ajaran")
+  pendaftaranBuka Boolean  @default(true) @map("pendaftaran_buka")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("pengaturan")
 }

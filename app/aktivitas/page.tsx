@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useUser, useClerk } from '@clerk/nextjs';
+import { useAuth } from '@/lib/use-auth';
 
 interface AktivitasItem {
   id: string;
@@ -19,8 +19,7 @@ export default function AktivitasPage() {
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { user, isSignedIn, isLoaded } = useUser();
-  const { signOut } = useClerk();
+  const { user, isSignedIn, isLoaded, logout } = useAuth();
 
   const [aktivitasList, setAktivitasList] = useState<AktivitasItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,19 +87,15 @@ export default function AktivitasPage() {
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
-      await signOut();
-      showToast('Berhasil keluar akun.', 'success');
-      setTimeout(() => {
-        router.push('/sign-in');
-      }, 500);
+      await logout();
     } catch (err: any) {
       setIsLoggingOut(false);
-      showToast(`Gagal logout: ${err.message}`, 'error');
+      showToast('Gagal logout: ' + (err?.message || ''), 'error');
     }
   };
 
-  const displayName = isLoaded ? (user?.fullName || user?.firstName || 'Wali Murid') : 'Memuat...';
-  const displayAvatar = user?.imageUrl || '';
+  const displayName = isLoaded ? (user?.nama || 'Pengguna') : 'Memuat...';
+  const displayAvatar = user?.avatarUrl || '';
 
   const filteredList = aktivitasList.filter((item) => {
     const matchSearch =
@@ -248,7 +243,7 @@ export default function AktivitasPage() {
             </div>
           ) : (
             <Link 
-              href="/sign-in" 
+              href="/login" 
               className="bg-[#02677f] hover:bg-[#005468] text-white px-5 py-2 rounded-full text-xs font-extrabold shadow-md transition-all flex items-center gap-1.5 active:scale-95"
             >
               <span>Login</span>

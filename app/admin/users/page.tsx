@@ -9,10 +9,19 @@ interface PenggunaItem {
   level_akses: string;
   avatar_url?: string;
   nama_anak?: string;
+  siswa_ids?: string[];
+}
+
+interface SiswaOption {
+  id: string;
+  nama: string;
+  nis: string;
+  kelas: string;
 }
 
 export default function AdminUsersPage() {
   const [usersList, setUsersList] = useState<PenggunaItem[]>([]);
+  const [siswaOptions, setSiswaOptions] = useState<SiswaOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('Semua');
@@ -27,8 +36,9 @@ export default function AdminUsersPage() {
     nama: '',
     email: '',
     password: '',
-    level_akses: 'GURU & ADMIN',
+    level_akses: 'WALI MURID',
     avatar_url: '',
+    siswa_id: '',
   });
 
   const [toast, setToast] = useState<{ isOpen: boolean; message: string; type: 'success' | 'error' | 'warning' }>({
@@ -59,8 +69,21 @@ export default function AdminUsersPage() {
     }
   };
 
+  const fetchSiswaOptions = async () => {
+    try {
+      const res = await fetch('/api/siswa');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setSiswaOptions(json.data);
+      }
+    } catch {
+      console.error('Gagal mengambil daftar siswa');
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchSiswaOptions();
   }, []);
 
   const handleOpenModal = (user: PenggunaItem | null = null) => {
@@ -73,14 +96,16 @@ export default function AdminUsersPage() {
         password: '',
         level_akses: user.level_akses,
         avatar_url: user.avatar_url || '',
+        siswa_id: user.siswa_ids?.[0] || '',
       });
     } else {
       setFormData({
         nama: '',
         email: '',
         password: '',
-        level_akses: 'GURU & ADMIN',
+        level_akses: 'WALI MURID',
         avatar_url: '',
+        siswa_id: '',
       });
     }
     setIsModalOpen(true);
@@ -116,7 +141,7 @@ export default function AdminUsersPage() {
         });
         const result = await res.json();
         if (!res.ok || !result.success) throw new Error(result.message);
-        showToast('Akun pengguna berhasil dibuat di Clerk & Database!', 'success');
+        showToast('Akun pengguna baru berhasil dibuat!', 'success');
       }
 
       fetchUsers();
@@ -127,6 +152,12 @@ export default function AdminUsersPage() {
   };
 
   const handleDeleteUser = (user: PenggunaItem) => {
+    const isProtected = user.level_akses === 'MASTER ADMIN' || user.email.includes('master');
+    if (isProtected) {
+      showToast('Akun Master Administrator dilindungi dan tidak dapat dihapus.', 'warning');
+      return;
+    }
+
     setConfirmDialog({
       isOpen: true,
       message: `Hapus akun "${user.nama}" (${user.email}) secara permanen?`,
@@ -160,8 +191,13 @@ export default function AdminUsersPage() {
       {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200/80 pb-4">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Manajemen Hak Akses & Akun</h1>
-          <p className="text-xs text-slate-500 font-semibold mt-0.5">Kelola kredensial guru, staf admin, dan akun portal wali murid.</p>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Manajemen Hak Akses & Akun</h1>
+            <span className="bg-purple-100 text-purple-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-full border border-purple-200">
+              Master Admin
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 font-semibold mt-0.5">Kelola kredensial Guru, staf Admin, dan akun portal Wali Murid.</p>
         </div>
         <button
           onClick={() => handleOpenModal()}
@@ -189,12 +225,12 @@ export default function AdminUsersPage() {
           </svg>
         </div>
 
-        <div className="flex gap-2">
-          {['Semua', 'GURU & ADMIN', 'WALI MURID'].map((role) => (
+        <div className="flex flex-wrap gap-2">
+          {['Semua', 'MASTER ADMIN', 'GURU & ADMIN', 'WALI MURID'].map((role) => (
             <button
               key={role}
               onClick={() => setFilterRole(role)}
-              className={`px-4 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all ${
+              className={`px-3.5 py-2 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all ${
                 filterRole === role
                   ? 'bg-[#02677f] text-white shadow-xs'
                   : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -229,53 +265,87 @@ export default function AdminUsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700">
-                {filteredUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-4 px-5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-slate-100 text-[#02677f] flex items-center justify-center font-extrabold text-xs shrink-0 border border-slate-200">
-                          {u.avatar_url ? (
-                            <img src={u.avatar_url} alt={u.nama} className="w-full h-full object-cover rounded-xl" />
-                          ) : (
-                            u.nama.charAt(0).toUpperCase()
-                          )}
+                {filteredUsers.map((u) => {
+                  const isMaster = u.level_akses === 'MASTER ADMIN' || u.email.includes('master');
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-4 px-5">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-extrabold text-xs shrink-0 border ${
+                            isMaster 
+                              ? 'bg-purple-100 text-purple-700 border-purple-200' 
+                              : 'bg-slate-100 text-[#02677f] border-slate-200'
+                          }`}>
+                            {u.avatar_url ? (
+                              <img src={u.avatar_url} alt={u.nama} className="w-full h-full object-cover rounded-xl" />
+                            ) : (
+                              u.nama.charAt(0).toUpperCase()
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-slate-900 font-extrabold block">{u.nama}</span>
+                            {isMaster && (
+                              <span className="text-[9px] text-purple-600 font-bold">Akun Master Utama</span>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-slate-900 font-extrabold">{u.nama}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-5 font-mono text-slate-600">{u.email}</td>
-                    <td className="py-4 px-5">
-                      <span className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold uppercase ${
-                        u.level_akses === 'GURU & ADMIN'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                          : 'bg-sky-50 text-[#02677f] border border-sky-100'
-                      }`}>
-                        {u.level_akses}
-                      </span>
-                    </td>
-                    <td className="py-4 px-5 text-slate-500">{u.nama_anak || '-'}</td>
-                    <td className="py-4 px-5 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => handleOpenModal(u)}
-                        className="p-1.5 text-slate-400 hover:text-[#02677f] rounded-xl hover:bg-sky-50 transition-colors mr-1"
-                        title="Edit"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => handleDeleteUser(u)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition-colors"
-                        title="Hapus"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-4 px-5 font-mono text-slate-600">{u.email}</td>
+                      <td className="py-4 px-5">
+                        <span className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold uppercase border ${
+                          u.level_akses === 'MASTER ADMIN'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : u.level_akses === 'GURU & ADMIN'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                            : 'bg-sky-50 text-[#02677f] border-sky-100'
+                        }`}>
+                          {u.level_akses}
+                        </span>
+                      </td>
+                      <td className="py-4 px-5 text-slate-600 font-semibold">
+                        {u.nama_anak && u.nama_anak !== '-' ? (
+                          <span className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg text-slate-700">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            {u.nama_anak}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-normal">-</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-5 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => handleOpenModal(u)}
+                          className="p-1.5 text-slate-400 hover:text-[#02677f] rounded-xl hover:bg-sky-50 transition-colors mr-1"
+                          title="Edit Akun"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+                          </svg>
+                        </button>
+                        {isMaster ? (
+                          <span
+                            className="p-1.5 text-slate-300 inline-block cursor-not-allowed"
+                            title="Akun Master Utama Dilindungi (Tidak Dapat Dihapus)"
+                          >
+                            <svg className="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                            </svg>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleDeleteUser(u)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-xl hover:bg-rose-50 transition-colors"
+                            title="Hapus Akun"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -287,9 +357,12 @@ export default function AdminUsersPage() {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-md w-full shadow-2xl space-y-4 animate-fadeIn">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
-                {selectedUser ? 'Edit Akun Pengguna' : 'Buat Akun Pengguna Baru'}
-              </h3>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">
+                  {selectedUser ? 'Edit Akun Pengguna' : 'Buat Akun Pengguna Baru'}
+                </h3>
+                <p className="text-[10px] text-slate-400 font-semibold">Tentukan peran, hak akses, dan tautan siswa</p>
+              </div>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
@@ -352,6 +425,7 @@ export default function AdminUsersPage() {
                 </div>
               </div>
 
+              {/* PERAN / LEVEL AKSES */}
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-500 uppercase">Peran / Level Akses</label>
                 <select
@@ -359,10 +433,36 @@ export default function AdminUsersPage() {
                   onChange={(e) => setFormData({ ...formData, level_akses: e.target.value })}
                   className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
                 >
-                  <option value="GURU & ADMIN">GURU & ADMIN</option>
-                  <option value="WALI MURID">WALI MURID</option>
+                  <option value="WALI MURID">WALI MURID (Portal Wali & Pantauan Anak)</option>
+                  <option value="GURU & ADMIN">GURU & ADMIN (Kelola Siswa, Rapor, Kalender)</option>
+                  <option value="MASTER ADMIN">MASTER ADMIN (Hak Akses Penuh & Kelola Akun)</option>
                 </select>
               </div>
+
+              {/* TAUTAN SISWA (JIKA PERAN WALI MURID) */}
+              {formData.level_akses === 'WALI MURID' && (
+                <div className="space-y-1 bg-sky-50/60 p-3 rounded-2xl border border-sky-100">
+                  <label className="text-[10px] font-bold text-[#02677f] uppercase flex items-center justify-between">
+                    <span>Tautkan ke Anak Didik</span>
+                    <span className="text-[9px] font-normal text-slate-400">Opsional</span>
+                  </label>
+                  <select
+                    value={formData.siswa_id}
+                    onChange={(e) => setFormData({ ...formData, siswa_id: e.target.value })}
+                    className="w-full p-2.5 border border-sky-200 rounded-xl text-xs font-bold text-slate-900 bg-white focus:border-[#02677f] outline-none transition-all"
+                  >
+                    <option value="">-- Belum Ditautkan (Pilih Nanti) --</option>
+                    {siswaOptions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nama} ({s.kelas} - NIS: {s.nis})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-slate-500 font-medium">
+                    Wali murid akan langsung dapat memantau jurnal harian dan rapor digital anak terpilih.
+                  </p>
+                </div>
+              )}
 
               <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50">

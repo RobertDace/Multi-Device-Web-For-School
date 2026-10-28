@@ -8,13 +8,23 @@ interface SiswaItem {
   nama: string;
   kelas: string;
   status: string;
+  wali_id?: string;
   nama_wali?: string;
+  email_wali?: string;
   jurnal_hari_ini?: string;
   foto_jurnal?: string;
 }
 
+interface WaliOption {
+  id: string;
+  nama: string;
+  email: string;
+  level_akses?: string;
+}
+
 export default function AdminSiswaPage() {
   const [siswaList, setSiswaList] = useState<SiswaItem[]>([]);
+  const [waliOptions, setWaliOptions] = useState<WaliOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterKelas, setFilterKelas] = useState('Semua');
@@ -30,6 +40,7 @@ export default function AdminSiswaPage() {
     nama: '',
     kelas: 'Kelompok A',
     status: 'Aktif',
+    wali_id: '',
   });
 
   // Form State Jurnal Harian
@@ -66,8 +77,21 @@ export default function AdminSiswaPage() {
     }
   };
 
+  const fetchWaliOptions = async () => {
+    try {
+      const res = await fetch('/api/users');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setWaliOptions(json.data);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     fetchSiswa();
+    fetchWaliOptions();
   }, []);
 
   // Buka Modal Tambah / Edit Siswa
@@ -79,6 +103,7 @@ export default function AdminSiswaPage() {
         nama: siswa.nama,
         kelas: siswa.kelas,
         status: siswa.status,
+        wali_id: siswa.wali_id || '',
       });
     } else {
       setFormData({
@@ -86,6 +111,7 @@ export default function AdminSiswaPage() {
         nama: '',
         kelas: 'Kelompok A',
         status: 'Aktif',
+        wali_id: '',
       });
     }
     setIsModalOpen(true);
@@ -208,7 +234,8 @@ export default function AdminSiswaPage() {
   const filteredSiswa = siswaList.filter((s) => {
     const matchSearch =
       s.nama.toLowerCase().includes(search.toLowerCase()) ||
-      s.nis.toLowerCase().includes(search.toLowerCase());
+      s.nis.toLowerCase().includes(search.toLowerCase()) ||
+      (s.nama_wali && s.nama_wali.toLowerCase().includes(search.toLowerCase()));
     const matchKelas = filterKelas === 'Semua' || s.kelas === filterKelas;
     return matchSearch && matchKelas;
   });
@@ -237,7 +264,7 @@ export default function AdminSiswaPage() {
         <div className="relative flex-1">
           <input
             type="text"
-            placeholder="Cari murid berdasarkan nama atau nomor NIS..."
+            placeholder="Cari murid berdasarkan nama, nomor NIS, atau nama wali..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 placeholder:text-slate-400 outline-none focus:border-[#02677f] transition-all shadow-3xs"
@@ -282,7 +309,7 @@ export default function AdminSiswaPage() {
                   <th className="py-3.5 px-5">NIS</th>
                   <th className="py-3.5 px-5">Nama Murid</th>
                   <th className="py-3.5 px-5">Kelompok</th>
-                  <th className="py-3.5 px-5">Wali Terhubung</th>
+                  <th className="py-3.5 px-5">Wali Murid Terhubung</th>
                   <th className="py-3.5 px-5">Observasi Hari Ini</th>
                   <th className="py-3.5 px-5 text-right">Aksi</th>
                 </tr>
@@ -300,7 +327,18 @@ export default function AdminSiswaPage() {
                       </span>
                     </td>
                     <td className="py-4 px-5">{siswa.kelas}</td>
-                    <td className="py-4 px-5 text-slate-500">{siswa.nama_wali || '-'}</td>
+                    <td className="py-4 px-5">
+                      {siswa.nama_wali && siswa.nama_wali !== '-' ? (
+                        <div>
+                          <span className="text-slate-900 font-bold block">{siswa.nama_wali}</span>
+                          <span className="text-[10px] text-slate-400 font-mono block">{siswa.email_wali}</span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                          Belum ditautkan
+                        </span>
+                      )}
+                    </td>
                     <td className="py-4 px-5 max-w-xs">
                       {siswa.jurnal_hari_ini ? (
                         <p className="line-clamp-1 text-[11px] text-slate-600 font-medium">{siswa.jurnal_hari_ini}</p>
@@ -409,6 +447,26 @@ export default function AdminSiswaPage() {
                 </div>
               </div>
 
+              {/* TAUTKAN AKUN WALI MURID */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Tautkan Akun Wali Murid (Orang Tua)</label>
+                <select
+                  value={formData.wali_id}
+                  onChange={(e) => setFormData({ ...formData, wali_id: e.target.value })}
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 bg-slate-50/50 focus:bg-white focus:border-[#02677f] outline-none transition-all"
+                >
+                  <option value="">-- Belum Ditautkan (Pilih Wali) --</option>
+                  {waliOptions.map((wali) => (
+                    <option key={wali.id} value={wali.id}>
+                      {wali.nama} ({wali.email})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[9px] text-slate-400 font-medium">
+                  Pilih akun orang tua agar data ananda tampil otomatis di Portal Wali Murid saat login.
+                </p>
+              </div>
+
               <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50">
                   Batal
@@ -422,7 +480,7 @@ export default function AdminSiswaPage() {
         </div>
       )}
 
-      {/* MODAL JURNAL HARIAN OBSERVASi */}
+      {/* MODAL JURNAL HARIAN OBSERVASI */}
       {isJurnalModalOpen && selectedSiswa && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-lg w-full shadow-2xl space-y-4 animate-fadeIn">
@@ -448,25 +506,31 @@ export default function AdminSiswaPage() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">Foto Dokumentasi Hari Ini</label>
+              {/* UPLOAD FOTO JURNAL */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase">Foto Dokumentasi Kegiatan Hari Ini</label>
                 {jurnalData.foto_jurnal ? (
-                  <div className="border border-slate-200 bg-white p-2.5 rounded-xl flex items-center justify-between gap-3 shadow-3xs">
-                    <img src={jurnalData.foto_jurnal} alt="Preview Jurnal" className="w-12 h-12 rounded-lg object-cover bg-slate-50 border border-slate-100" />
+                  <div className="relative w-full h-44 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100">
+                    <img src={jurnalData.foto_jurnal} alt="Foto Jurnal" className="w-full h-full object-cover" />
                     <button
                       type="button"
-                      onClick={() => setJurnalData({ ...jurnalData, foto_jurnal: '' })}
-                      className="text-xs font-bold text-rose-600 hover:text-rose-700"
+                      onClick={() => setJurnalData((prev) => ({ ...prev, foto_jurnal: '' }))}
+                      className="absolute top-2 right-2 bg-rose-600 text-white p-1.5 rounded-xl text-xs font-bold shadow-md hover:bg-rose-700 transition-colors"
                     >
                       Hapus Foto
                     </button>
                   </div>
                 ) : (
-                  <label className="border-2 border-dashed border-slate-200 hover:border-[#02677f] rounded-xl p-4 text-center bg-slate-50/20 transition-colors cursor-pointer flex flex-col items-center justify-center gap-1">
+                  <label className="border-2 border-dashed border-slate-200 hover:border-[#02677f] rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-sky-50/30">
                     <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
-                    <span className="text-xs font-bold text-slate-400">
-                      {isUploadingPhoto ? 'Memproses gambar...' : 'Klik untuk unggah foto dokumentasi'}
+                    <svg className="w-8 h-8 text-slate-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0ZM18.75 10.5h.008v.008h-.008V10.5Z" />
+                    </svg>
+                    <span className="text-xs font-bold text-slate-600">
+                      {isUploadingPhoto ? 'Memproses berkas gambar...' : 'Klik untuk pilih foto kegiatan harian'}
                     </span>
+                    <span className="text-[10px] text-slate-400 mt-0.5">Format JPG, PNG atau WEBP</span>
                   </label>
                 )}
               </div>
@@ -487,30 +551,21 @@ export default function AdminSiswaPage() {
       {/* CONFIRM DIALOG */}
       {confirmDialog.isOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-sm w-full shadow-2xl space-y-4 text-center animate-fadeIn">
-            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mx-auto">
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Konfirmasi Hapus Murid</h3>
-              <p className="text-slate-500 text-xs leading-relaxed font-semibold">{confirmDialog.message}</p>
-            </div>
-            <div className="pt-2 flex gap-2">
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 max-w-sm w-full shadow-2xl space-y-4 animate-fadeIn">
+            <h3 className="text-sm font-extrabold text-slate-900">Konfirmasi Tindakan</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">{confirmDialog.message}</p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
-                type="button"
-                onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: () => {} })}
-                className="flex-1 border border-slate-200 text-slate-600 font-bold py-2.5 rounded-xl text-xs hover:bg-slate-50 transition-colors"
+                onClick={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50"
               >
                 Batal
               </button>
               <button
-                type="button"
                 onClick={confirmDialog.onConfirm}
-                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs shadow-xs transition-colors"
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs"
               >
-                Hapus
+                Ya, Hapus
               </button>
             </div>
           </div>

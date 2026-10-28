@@ -89,14 +89,32 @@ export default function AdminEditorLandingPage() {
 
   useEffect(() => {
     fetchKontenSidebar();
+    fetch('/api/settings')
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.success && res.data?.tagline) {
+          setHeroData((prev) => ({
+            ...prev,
+            headline: res.data.tagline,
+          }));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleSaveHeroText = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      showToast('Teks beranda utama (Hero Section) berhasil diperbarui!', 'success');
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagline: heroData.headline }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Gagal menyimpan');
+      showToast('Teks beranda utama (Hero Section) berhasil diperbarui ke database!', 'success');
       setIsModalOpen(false);
-    } catch {
+    } catch (err: any) {
       showToast('Gagal memperbarui teks Hero Section.', 'error');
     }
   };

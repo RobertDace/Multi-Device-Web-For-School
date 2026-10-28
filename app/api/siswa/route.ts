@@ -14,7 +14,9 @@ export async function GET() {
       nama: s.nama,
       kelas: s.kelas,
       status: s.status,
+      wali_id: s.waliId || "",
       nama_wali: s.wali?.nama || "-",
+      email_wali: s.wali?.email || "-",
       jurnal_hari_ini: s.jurnalHariIni || "",
       foto_jurnal: s.fotoJurnal || "",
     }));
@@ -35,6 +37,7 @@ export async function POST(request: Request) {
         nama: body.nama.trim(),
         kelas: body.kelas,
         status: body.status || "Aktif",
+        waliId: body.wali_id || body.waliId || null,
         jurnalHariIni: body.jurnal_hari_ini || null,
         fotoJurnal: body.foto_jurnal || null,
       },

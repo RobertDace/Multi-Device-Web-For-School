@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus_Jakarta_Sans } from 'next/font/google';
-import { useUser, useClerk } from '@clerk/nextjs';
+import { useAuth } from '@/lib/use-auth';
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -17,9 +17,9 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { user, isLoaded } = useUser();
-  const { signOut } = useClerk();
+  const { user, isLoaded, logout } = useAuth();
 
+  const [userRole, setUserRole] = useState<string>('WALI MURID');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -42,26 +42,11 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
   };
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    if (isLoaded && !user) {
-      router.push('/sign-in');
-    }
-  }, [isLoaded, user, router]);
-
-  useEffect(() => {
     if (user) {
+      setUserRole(user.levelAkses || 'WALI MURID');
       setFormData({
-        nama: user.fullName || user.firstName || 'Wali Murid',
-        email: user.primaryEmailAddress?.emailAddress || '',
+        nama: user.nama || 'Wali Murid',
+        email: user.email || '',
       });
     }
   }, [user]);
@@ -69,8 +54,8 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
   const handleOpenProfileModal = () => {
     if (user) {
       setFormData({
-        nama: user.fullName || user.firstName || 'Wali Murid',
-        email: user.primaryEmailAddress?.emailAddress || '',
+        nama: user.nama || 'Wali Murid',
+        email: user.email || '',
       });
     }
     setIsProfileModalOpen(true);
@@ -79,39 +64,36 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
-      await signOut();
-      showToast('Berhasil keluar dari Portal Wali Murid.', 'success');
-      setTimeout(() => {
-        setIsProfileModalOpen(false);
-        router.push('/sign-in');
-      }, 500);
+      await logout();
     } catch (err: any) {
       setIsLoggingOut(false);
-      showToast(`Gagal keluar akun: ${err.message}`, 'error');
+      showToast('Gagal keluar akun: ' + (err?.message || ''), 'error');
     }
   };
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-
     if (!file.type.startsWith('image/')) {
       showToast('Harap pilih berkas gambar (JPG, PNG, WEBP).', 'warning');
       return;
     }
-
-    setIsUploadingAvatar(true);
-    setUploadProgress(30);
-
-    try {
-      await user.setProfileImage({ file });
-      setUploadProgress(100);
-      showToast('Foto profil wali berhasil diperbarui!', 'success');
-    } catch (err: any) {
-      showToast(`Gagal mengunggah foto profil: ${err.message}`, 'error');
-    } finally {
-      setIsUploadingAvatar(false);
-    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64 = reader.result as string;
+        await fetch(`/api/users/${user.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ avatar_url: base64 }),
+        });
+        showToast('Foto profil wali berhasil diperbarui!', 'success');
+        window.location.reload();
+      } catch (err: any) {
+        showToast('Gagal mengubah foto: ' + (err?.message || ''), 'error');
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -122,17 +104,16 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
     }
 
     try {
-      const nameParts = formData.nama.trim().split(' ');
-      const firstName = nameParts[0];
-      const lastName = nameParts.slice(1).join(' ');
-
-      await user.update({
-        firstName,
-        lastName: lastName || undefined,
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nama: formData.nama.trim() }),
       });
-
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message);
       showToast('Profil akun wali berhasil disimpan!', 'success');
       setIsProfileModalOpen(false);
+      window.location.reload();
     } catch (err: any) {
       showToast(`Gagal memperbarui profil: ${err.message}`, 'error');
     }
@@ -168,8 +149,8 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
     }
   ];
 
-  const displayName = isLoaded ? (user?.fullName || user?.firstName || 'Wali Murid') : 'Memuat...';
-  const displayAvatar = user?.imageUrl || '';
+  const displayName = isLoaded ? (user?.nama || 'Wali Murid') : 'Memuat...';
+  const displayAvatar = user?.avatarUrl || '';
 
   return (
     <div className={`${jakarta.variable} font-sans min-h-screen bg-slate-50 text-slate-900 antialiased selection:bg-[#02677f] selection:text-white`}>
@@ -238,7 +219,7 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
                   {displayName}
                 </span>
                 <span className="block text-[9px] font-mono font-bold text-slate-400 uppercase">
-                  Wali Murid
+                  {userRole}
                 </span>
               </div>
 
@@ -249,6 +230,7 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
 
             {isDropdownOpen && (
               <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden py-1.5 animate-fadeIn">
+                {(userRole.toUpperCase().includes('GURU') || userRole.toUpperCase().includes('ADMIN')) && (
                 <Link 
                   href="/admin/siswa" 
                   onClick={() => setIsDropdownOpen(false)} 
@@ -259,6 +241,7 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
                   </svg>
                   <span>Portal Guru & Admin</span>
                 </Link>
+              )}
 
                 <button
                   onClick={() => {
@@ -390,14 +373,14 @@ export default function WaliLayout({ children }: { children: React.ReactNode }) 
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alamat Email Login (Clerk)</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alamat Email Terdaftar</label>
                 <input 
                   type="email" 
                   value={formData.email}
                   disabled
                   className="w-full p-3 border border-slate-200 rounded-xl text-xs font-extrabold text-slate-400 bg-slate-100 cursor-not-allowed outline-none"
                 />
-                <p className="text-[9px] text-slate-400 font-medium">Email dikelola langsung melalui akun Clerk.</p>
+                <p className="text-[9px] text-slate-400 font-medium">Alamat email terhubung dengan akun portal wali murid.</p>
               </div>
 
               <div className="pt-3 border-t border-slate-100 space-y-2">
